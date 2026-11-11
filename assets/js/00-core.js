@@ -10,8 +10,29 @@
    ====================================================================== */
 const SUPABASE_URL = "https://ueuhedaqpzxmjrcjktmw.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_QH-5FvLviSJJZD3Fne_CPQ_KeYWDrGm";
-const APP_VERSION = "53.15-interne";
-const APP_BUILD_DATE = "2026-09-19";
+const APP_VERSION = "54.0-interne";
+const APP_BUILD_DATE = "2026-11-11";
+
+/* v54 — Lien d'invitation ou de réinitialisation reçu par e-mail.
+   Supabase renvoie vers l'application avec `type=invite` ou `type=recovery`
+   dans l'adresse, puis efface ce fragment dès l'ouverture de la session. On
+   le lit donc AVANT de créer le client : l'écran de choix du mot de passe
+   doit s'afficher, au lieu d'ouvrir directement l'application. */
+const LIEN_AUTH_TYPE = (()=>{
+  try{
+    const m=/[#&?]type=(invite|recovery)\b/.exec(String(window.location.hash||"")+String(window.location.search||""));
+    return m ? m[1] : "";
+  }catch(_){ return ""; }
+})();
+
+/* v54 — Service Render (PDF, Yousign, RNE). Chaque appel porte désormais le
+   jeton de session Supabase : le service peut ainsi refuser tout appel qui
+   ne vient pas d'un utilisateur connecté du cabinet.
+   Passer à `false` seulement si le service Render n'a pas encore reçu la
+   vérification du jeton (voir serveur-render/LISEZMOI.md) et refuse
+   l'en-tête `Authorization` (erreur CORS dans la console). */
+const PROXY_ENVOIE_JETON = true;
+
 const SB = (window.supabase && window.supabase.createClient)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
 let SB_USER = null;
@@ -19,6 +40,19 @@ let SB_PROFILE = null;
 let SB_PROFILES = [];
 let ACCESS_BACKEND_READY = false;
 let ACCESS_BACKEND_ERROR = "";
+
+/* v54 — Appel au service Render avec le jeton de l'utilisateur connecté. */
+async function proxyFetch(url, options={}){
+  const headers={...(options.headers||{})};
+  if(PROXY_ENVOIE_JETON && SB){
+    try{
+      const {data}=await SB.auth.getSession();
+      const jeton=data?.session?.access_token;
+      if(jeton) headers.Authorization="Bearer "+jeton;
+    }catch(_){}
+  }
+  return fetch(url,{...options,headers});
+}
 
 const MEM = {};
 let HAS_LOCAL = false;

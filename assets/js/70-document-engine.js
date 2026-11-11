@@ -606,7 +606,7 @@ function pdfDocumentHTML(type,d,m){
 async function fetchPdfBlob(type,d=curDev(),m=d&&modOf(d)){
   if(!d||!m)throw new Error("Dossier introuvable.");
   const pdfProxy=String(st.ys.proxy||DEFAULT_RENDER_PROXY).trim()||DEFAULT_RENDER_PROXY,filename=`${nomFichierDocument(d,type)}.pdf`,html=pdfDocumentHTML(type,d,m);
-  const r=await fetch(pdfProxy.replace(/\/$/,"")+"/api/pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename,html,document_type:type})});
+  const r=await proxyFetch(pdfProxy.replace(/\/$/,"")+"/api/pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename,html,document_type:type})});
   if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||`HTTP ${r.status}`);}
   const ct=(r.headers.get("content-type")||"").toLowerCase(),buf=await r.arrayBuffer(),head=new TextDecoder("ascii").decode(buf.slice(0,5));
   if(!ct.includes("application/pdf")||head!=="%PDF-")throw new Error("Le serveur n'a pas renvoyé un PDF valide.");
@@ -629,7 +629,7 @@ async function downloadPdfDocument(type){
   const filename=`${nomFichierDocument(d,type)}.pdf`;
   try{
     toast(type==="lm"?"Génération de la lettre de mission PDF…":"Génération du devis PDF…");
-    const r=await fetch(pdfProxy.replace(/\/$/,"")+"/api/pdf",{
+    const r=await proxyFetch(pdfProxy.replace(/\/$/,"")+"/api/pdf",{
       method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({filename,html:pdfDocumentHTML(type,d,m),document_type:type})
     });
@@ -833,8 +833,9 @@ function renderLogin(msg=""){
 /* =====================================================================
    v47 — PREMIÈRE CONNEXION : CHOIX DU MOT DE PASSE
    ---------------------------------------------------------------------
-   Un compte créé par le cabinet part d'un mot de passe provisoire commun.
-   Tant que `profiles.must_change_password` est vrai, l'application ne
+   v54 : un compte est ouvert par un lien à usage unique (invitation ou
+   réinitialisation) ; il n'existe plus de mot de passe provisoire commun.
+   Cet écran s'affiche à l'arrivée par un tel lien et, tant que `profiles.must_change_password` est vrai, l'application ne
    s'ouvre pas : cet écran remplace l'interface et n'en libère l'accès
    qu'une fois le mot de passe remplacé.
 
@@ -852,7 +853,7 @@ function forceMdpDiagnostic(mdp){
   return "";
 }
 
-function renderPasswordSetup(){
+function renderPasswordSetup(origine=""){
   const root=document.getElementById("app"), b=cachedBrandData();
   document.documentElement.style.setProperty("--vert",b.primary);
   document.documentElement.style.setProperty("--rail-bg",b.rail);
@@ -860,8 +861,12 @@ function renderPasswordSetup(){
   root.className="";
   root.innerHTML=`<div class="auth-page"><div class="auth-shell">
     <section class="auth-showcase">${b.logo?`<img class="auth-logo" src="${esc(b.logo)}" alt="">`:`<div class="auth-brand" style="font-size:22px;font-weight:750;letter-spacing:.16em">${esc(b.product)}</div>`}
-      <h1>Première connexion : choisissez votre mot de passe.</h1>
-      <p>Votre compte a été ouvert par le cabinet avec un mot de passe provisoire, commun à tous les nouveaux accès. Il doit être remplacé avant toute utilisation.</p>
+      <h1>${origine==="recovery"?"Choisissez un nouveau mot de passe.":"Première connexion : choisissez votre mot de passe."}</h1>
+      <p>${origine==="recovery"
+        ?"Vous êtes arrivé par un lien de réinitialisation à usage unique. Choisissez un nouveau mot de passe pour accéder à l'application."
+        :origine==="invite"
+        ?"Votre accès a été ouvert par le cabinet au moyen d'un lien à usage unique. Choisissez votre mot de passe pour accéder à l'application."
+        :"Votre compte doit recevoir un mot de passe personnel avant toute utilisation."}</p>
       <div class="auth-feature">Au moins ${MDP_LONGUEUR_MIN} caractères</div>
       <div class="auth-feature">Minuscules, majuscules, chiffres ou signes — trois types au minimum</div>
       <div class="auth-feature">Connu de vous seul : le cabinet n'y a pas accès</div>
@@ -895,11 +900,13 @@ function renderPasswordSetup(){
       /* Supabase refuse un mot de passe identique au précédent : c'est
          exactement le cas qu'on veut empêcher ici, on le dit clairement. */
       if(error) throw new Error(/same|différent|identical/i.test(error.message)
-        ? "Ce mot de passe est celui qui vous a été communiqué. Choisissez-en un autre."
+        ? "Ce mot de passe est identique au précédent. Choisissez-en un autre."
         : error.message);
       const {error:rpcError}=await SB.rpc("finish_password_change");
       if(rpcError) throw rpcError;
-      location.reload();
+      /* Le fragment `type=…` a déjà été effacé par Supabase ; on recharge
+         l'adresse nue pour ne pas réafficher cet écran. */
+      location.replace(location.origin+location.pathname);
     }catch(err){
       msg.style.color="";
       msg.textContent="Enregistrement impossible : "+(err?.message||err);

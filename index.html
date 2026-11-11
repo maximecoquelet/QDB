@@ -5,8 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SERRE — Grille &amp; Mission</title>
 <link rel="stylesheet" href="assets/css/app.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- v54 : bibliothèques hébergées avec l'application, versions figées.
+     supabase-js 2.118.0 (jsDelivr) ; SheetJS 0.20.3 (cdn.sheetjs.com),
+     qui corrige CVE-2023-30533 et CVE-2024-22363 de la 0.18.5. -->
+<script src="assets/vendor/supabase-js-2.118.0.min.js"></script>
+<script src="assets/vendor/xlsx-0.20.3.full.min.js"></script>
 </head>
 <body>
 <div id="app" class="app"></div>

@@ -9,6 +9,9 @@
   /* v47 : un compte ouvert par le cabinet démarre sur le mot de passe
      provisoire. Tant qu'il n'a pas été remplacé, rien d'autre ne se charge :
      ni les dossiers, ni les modèles, ni l'identité du cabinet. */
+  /* v54 : un lien d'invitation ou de réinitialisation ouvre une session
+     sans mot de passe. On impose le choix d'un mot de passe avant tout. */
+  if(LIEN_AUTH_TYPE){ renderPasswordSetup(LIEN_AUTH_TYPE); return; }
   if(SB_PROFILE?.must_change_password){ renderPasswordSetup(); return; }
   /* v50 : on interroge d'abord la base sur ce qu'elle sait faire. Tant que
      le script v50 n'a pas été exécuté, l'application fonctionne comme avant
@@ -30,7 +33,7 @@
   await loadStructuredLogs();
   if(!String(st.ys.proxy||"").trim()) st.ys.proxy=DEFAULT_RENDER_PROXY;
   if(!ys && HAS_LOCAL){
-    try{ const localYs=window.localStorage.getItem(K.ys); if(localYs){ st.ys={...st.ys,...JSON.parse(localYs)}; await S.set(K.ys,JSON.stringify(st.ys),true); } }catch(e){}
+    try{ const localYs=window.localStorage.getItem(K.ys); if(localYs){ st.ys={...st.ys,...JSON.parse(localYs)}; if(!SB_USER||canRole("admin")) await S.set(K.ys,JSON.stringify(st.ys),true); } }catch(e){}
   }
   let mig=false;
   if(!st.lettres.length){ st.lettres=[lettreDef()]; mig=true; }
@@ -44,7 +47,10 @@
   /* v53.8 : concordance préavis / résiliation, puis v53.14 : clause de
      révision annuelle à l’article 5, sur les lettres déjà en base. */
   /* v53.15 : la révision des honoraires quitte le devis pour l’article 5. */
-  if(upgradeConditionsFinancieresSansIndexation()){ mig=true; await saveCab(); auditGlobal("Conditions financières du devis","révision des honoraires retirée du devis","cabinet",""); }
+  /* v54 : l'identité du cabinet n'est modifiable que par un administrateur
+     côté base ; les mises à niveau restent appliquées en mémoire pour les
+     autres et sont enregistrées au passage du premier administrateur. */
+  if(upgradeConditionsFinancieresSansIndexation()){ mig=true; if(!SB_USER||canRole("admin")) await saveCab(); auditGlobal("Conditions financières du devis","révision des honoraires retirée du devis","cabinet",""); }
   const lmPreavis=upgradeLettresPreavisResiliation();
   if(lmPreavis){ mig=true; auditGlobal("Lettre de mission — articles repris sur la trame",`${lmPreavis} lettre(s) mise(s) à jour`,"lettre",""); }
   /* v47 : trames des missions ponctuelles puis câblage conditionnel du
@@ -288,8 +294,7 @@
   /* v42 : signataire unique du cabinet, si aucun n'a été renseigné. */
   if(!String(st.cab.signataire||"").trim()){
     st.cab.signataire=CAB_DEF.signataire;
-    auditGlobal("Signataire du cabinet renseigné",st.cab.signataire,"cabinet","");
-    await saveCab();
+    if(!SB_USER||canRole("admin")){ auditGlobal("Signataire du cabinet renseigné",st.cab.signataire,"cabinet",""); await saveCab(); }
   }
   /* v41 : pré-marquage des débours dans les modèles du cabinet. */
   const preDeb=preMarquerDeboursModeles();
@@ -299,7 +304,10 @@
   /* v49.1 : une migration ne s'exécute que sur un état complet. Si une
      lecture a échoué, l'application est déjà en lecture seule (voir
      MODE_LECTURE_SEULE) ; on n'essaie même pas d'écrire. */
-  if(mig && !MODE_LECTURE_SEULE) await Promise.all([saveLm(),saveMod()]);
+  /* v54 : modèles et lettres ne sont plus modifiables par un collaborateur
+     côté base (script v54). La mise à niveau reste appliquée en mémoire et
+     sera enregistrée par le premier manager ou administrateur connecté. */
+  if(mig && !MODE_LECTURE_SEULE && (!SB_USER || canRole("manager"))) await Promise.all([saveLm(),saveMod()]);
   st.modId=st.modeles[0].id; st.lmId=(bic&&bic.lmId)||st.lettres[0].id;
   let migDev=annualLegacyDevisChanged, migClients=!cli;
   st.clients=(st.clients||[]).map(c=>({archive:false,cree:c.cree||today(),maj:c.maj||today(),...c}));

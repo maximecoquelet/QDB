@@ -83,11 +83,16 @@ function questionnaireClientOf(el){
   if(!c) toast("Fiche client introuvable.",true);
   return c?ensureClientInternals(c):null;
 }
-/* Appel de la fonction « acces-collaborateur » et restitution du mot de passe
-   provisoire à l'administrateur. Il n'est affiché qu'ici, dans une fenêtre
-   qu'il faut fermer : il n'est jamais enregistré côté application. */
+/* Appel de la fonction « acces-collaborateur ».
+   v54 : la fonction ne renvoie plus de mot de passe provisoire commun, mais
+   un LIEN À USAGE UNIQUE propre au compte (invitation ou réinitialisation).
+   Il n'est affiché qu'ici, dans une fenêtre qu'il faut fermer : il n'est
+   jamais enregistré côté application. */
 async function accesAppelFonction(corps,titreSucces){
   try{
+    /* L'adresse de retour du lien : l'application elle-même. Supabase la
+       refuse si elle ne figure pas dans Authentication → URL Configuration. */
+    corps={...corps,redirectTo:window.location.origin+window.location.pathname};
     const {data,error}=await SB.functions.invoke("acces-collaborateur",{body:corps});
     /* Une erreur métier est renvoyée avec un code HTTP : le SDK la remonte
        comme FunctionsHttpError et le détail utile est dans la réponse. */
@@ -99,12 +104,17 @@ async function accesAppelFonction(corps,titreSucces){
     if(data?.error) throw new Error(data.error);
     auditGlobal(corps.action==="creer"?"Accès collaborateur créé":"Accès collaborateur réinitialisé",
       `${corps.email}${corps.role?` · ${corps.role}`:""}`,"utilisateur",corps.email);
+    const lien=String(data?.lien||"");
     modal(titreSucces,`
       <p>${esc(data?.message||"Opération effectuée.")}</p>
       <div class="grid" style="margin-top:12px">
         <label class="f"><span>Adresse e-mail</span><input type="text" value="${esc(data?.email||corps.email)}" readonly></label>
-        <label class="f"><span>Mot de passe provisoire</span><input type="text" value="${esc(data?.motDePasseProvisoire||"")}" readonly><div class="hint">Communiquez-le de vive voix ou par un canal distinct de la messagerie. Il est commun à tous les nouveaux accès : tant qu'il n'est pas remplacé, ce compte reste ouvert à quiconque le connaît.</div></label>
+        ${lien?`<label class="f"><span>Lien d'accès à usage unique</span><textarea readonly data-lien-acces style="min-height:90px;font-family:monospace;font-size:11px">${esc(lien)}</textarea>
+        <div class="row" style="margin-top:6px"><button class="btn sm" type="button" data-copier-lien>Copier le lien</button></div>
+        <div class="hint">À transmettre au seul collaborateur concerné, sur son adresse professionnelle. Le lien ne sert qu'une fois et expire (durée réglée dans Supabase → Authentication → Providers → Email). Passé ce délai, cliquez « Réinitialiser » pour en produire un nouveau.</div></label>`:""}
       </div>`);
+    const btn=document.querySelector("[data-copier-lien]");
+    if(btn) btn.onclick=async()=>{ try{ await navigator.clipboard.writeText(lien); toast("Lien copié."); }catch(_){ const t=document.querySelector("[data-lien-acces]"); t?.select(); toast("Sélectionnez le lien et copiez-le (Ctrl+C).",true); } };
     await loadSupabaseAccess();
     render();
   }catch(e){
@@ -258,7 +268,7 @@ const ACTS = {
   /* création de dossier */
   async createRneSearch(){
     const q=String(st.create?.query||"").trim();if(q.length<2){toast("Saisissez un SIREN, un SIRET ou une dénomination.",true);return;}const cs=st.create;cs.loading=true;cs.error="";cs.results=[];cs.company=null;cs.clientId="";render();
-    try{const base=String(st.ys.proxy||DEFAULT_RENDER_PROXY).replace(/\/$/,""),digits=q.replace(/\D/g,""),exact=digits.length===9||digits.length===14,url=exact?`${base}/api/rne/company/${encodeURIComponent(digits.slice(0,9))}`:`${base}/api/rne/search?q=${encodeURIComponent(q)}&limit=8`,r=await fetch(url,{headers:{Accept:"application/json"}}),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j?.error||`RNE HTTP ${r.status}`);const rows=(Array.isArray(j.results)?j.results:(j.company?[j.company]:[])).filter(Boolean);if(!rows.length){cs.error="Aucune entreprise trouvée.";return;}if(exact||rows.length===1){cs.company=rows[0];cs.query=rows[0].siren||q;}else cs.results=rows;}catch(e){cs.error=e?.message||"Impossible d'interroger le RNE.";}finally{cs.loading=false;render();}
+    try{const base=String(st.ys.proxy||DEFAULT_RENDER_PROXY).replace(/\/$/,""),digits=q.replace(/\D/g,""),exact=digits.length===9||digits.length===14,url=exact?`${base}/api/rne/company/${encodeURIComponent(digits.slice(0,9))}`:`${base}/api/rne/search?q=${encodeURIComponent(q)}&limit=8`,r=await proxyFetch(url,{headers:{Accept:"application/json"}}),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j?.error||`RNE HTTP ${r.status}`);const rows=(Array.isArray(j.results)?j.results:(j.company?[j.company]:[])).filter(Boolean);if(!rows.length){cs.error="Aucune entreprise trouvée.";return;}if(exact||rows.length===1){cs.company=rows[0];cs.query=rows[0].siren||q;}else cs.results=rows;}catch(e){cs.error=e?.message||"Impossible d'interroger le RNE.";}finally{cs.loading=false;render();}
   },
   createRneUse(el){const c=st.create.results[Number(el.dataset.index)];if(!c)return;st.create.company=c;st.create.results=[];st.create.clientId="";st.create.query=c.siren||c.denomination||st.create.query;render();},
   createClientPick(el){st.create.clientId=el.value;st.create.company=null;st.create.results=[];const c=createSelectedClient();if(c)st.create.query=c.siren||c.raison||"";render();},
@@ -343,7 +353,7 @@ const ACTS = {
         ? `${base}/api/rne/company/${encodeURIComponent(digits.slice(0,9))}`
         : `${base}/api/rne/search?q=${encodeURIComponent(q)}&limit=8`;
 
-      const r=await fetch(url,{headers:{Accept:"application/json"}});
+      const r=await proxyFetch(url,{headers:{Accept:"application/json"}});
       const j=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(j?.error||`RNE HTTP ${r.status}`);
       const rows=(Array.isArray(j.results)?j.results:(j.company?[j.company]:[])).filter(Boolean);
@@ -521,7 +531,7 @@ const ACTS = {
           return;
         }
       } else if(st.ys.proxy){
-        try{ const r=await fetch(st.ys.proxy.replace(/\/$/,"")+"/api/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({year:new Date().getFullYear()})});
+        try{ const r=await proxyFetch(st.ys.proxy.replace(/\/$/,"")+"/api/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({year:new Date().getFullYear()})});
           const j=await r.json().catch(()=>({})); if(r.ok&&j.devis&&(!avecLm||j.lm)) refs=j; }catch(e){}
       }
       refs=refs||refsLocales();
@@ -570,7 +580,7 @@ const ACTS = {
     const proxy=String(st.ys.proxy||DEFAULT_RENDER_PROXY).trim()||DEFAULT_RENDER_PROXY;
     try{
       toast("Génération du PDF…");
-      const r=await fetch(proxy.replace(/\/$/,"")+"/api/pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename,html,document_type:"questionnaire"})});
+      const r=await proxyFetch(proxy.replace(/\/$/,"")+"/api/pdf",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename,html,document_type:"questionnaire"})});
       if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||`HTTP ${r.status}`); }
       const buf=await r.arrayBuffer();
       if(new TextDecoder("ascii").decode(buf.slice(0,5))!=="%PDF-") throw new Error("réponse non PDF");
@@ -668,13 +678,13 @@ const ACTS = {
   payload(){ modal("Requête transmise au service interne",`<pre>${esc(JSON.stringify(payload(curDev(),false),null,2))}</pre>`); },
   async ysTemplate(el){st.settings.ysMessageTemplates={...SETTINGS_DEFAULT.ysMessageTemplates,...(st.settings.ysMessageTemplates||{}),[el.dataset.k]:el.value};auditGlobal("Modèle de message Yousign modifié",el.dataset.k,"yousign","");await saveSettings();},
   async ysTest(){ if(!st.ys.proxy){ toast("Renseignez l'URL du service.",true); return; }
-    try{ const r=await fetch(st.ys.proxy.replace(/\/$/,"")+"/health/yousign?env="+encodeURIComponent(st.ys.env)); const j=await r.json().catch(()=>({}));
+    try{ const r=await proxyFetch(st.ys.proxy.replace(/\/$/,"")+"/health/yousign?env="+encodeURIComponent(st.ys.env)); const j=await r.json().catch(()=>({}));
       toast(r.ok?`Service joignable — ${j.env||st.ys.env}.`:`Réponse ${r.status}.`,!r.ok);
     }catch(e){ toast("Service injoignable : vérifiez l'URL, HTTPS et le CORS.",true); } },
   async send(){ const d=curDev();
     if(!st.ys.proxy){ toast("Connecteur non configuré.",true); return; }
     const b=blocagesSignature(d); if(b.length){ toast("Envoi bloqué : "+b[0]+".",true); return; }
-    try{ const r=await fetch(st.ys.proxy.replace(/\/$/,"")+"/api/signature-requests",
+    try{ const r=await proxyFetch(st.ys.proxy.replace(/\/$/,"")+"/api/signature-requests",
         {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload(d,true))});
       const j=await r.json(); if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
       /* v49 : l'envoi en signature archive une version ; le verrou n'est
@@ -684,7 +694,7 @@ const ACTS = {
       saveDev(); render(); toast(`Demande transmise à ${d.client.email}.`);
     }catch(e){ toast("Envoi impossible : "+e.message,true); } },
   async statut(){ const d=curDev();
-    try{ const r=await fetch(st.ys.proxy.replace(/\/$/,"")+"/api/signature-requests/"+encodeURIComponent(d.sign.id)+"?env="+encodeURIComponent(st.ys.env));
+    try{ const r=await proxyFetch(st.ys.proxy.replace(/\/$/,"")+"/api/signature-requests/"+encodeURIComponent(d.sign.id)+"?env="+encodeURIComponent(st.ys.env));
       const j=await r.json(); if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
       d.sign.statut=j.status;
       if(j.status==="done"){ d.statut="signe"; d.sign.signe=today(); if(!d.frozenAt) freezeDocuments(d); }
@@ -695,7 +705,7 @@ const ACTS = {
     if(!d.sign.id||d.sign.statut!=="done"){ toast("Les documents ne sont pas encore disponibles en version signée.",true); return; }
     try{
       const u=st.ys.proxy.replace(/\/$/,"")+"/api/signature-requests/"+encodeURIComponent(d.sign.id)+"/documents?env="+encodeURIComponent(st.ys.env)+"&version=completed";
-      const r=await fetch(u); if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||`HTTP ${r.status}`); }
+      const r=await proxyFetch(u); if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||`HTTP ${r.status}`); }
       const blob=await r.blob(); const cd=r.headers.get("content-disposition")||"";
       const mm=cd.match(/filename=\"?([^\";]+)\"?/i); const ext=(blob.type||"").includes("zip")?"zip":"pdf";
       const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=mm?mm[1]:`${d.ref||"documents"}-signes.${ext}`; a.click();
@@ -730,7 +740,7 @@ const ACTS = {
     const vals=await askFields("Ouvrir un accès collaborateur",[
       {label:"Adresse e-mail professionnelle",type:"email",placeholder:"prenom.nom@cabinetserre.fr"},
       {label:"Rôle applicatif",options:[["collaborateur","Collaborateur"],["manager","Manager / associé"],["admin","Administrateur"]],value:"collaborateur"}
-    ],{confirmLabel:"Créer le compte"});
+    ],{confirmLabel:"Créer le compte et produire le lien"});
     if(!vals) return;
     const [email,role]=vals;
     if(!emailOk(String(email||"").trim())) return toast("Adresse e-mail invalide.",true);
@@ -741,7 +751,7 @@ const ACTS = {
     const email=el.dataset.email||"";
     if(!email) return toast("Adresse e-mail inconnue pour ce profil.",true);
     const ok=await askConfirm("Réinitialiser l'accès",
-      `Le compte ${email} sera replacé sur le mot de passe provisoire du cabinet. Son mot de passe actuel cessera immédiatement de fonctionner et un nouveau lui sera demandé à la prochaine connexion.`,
+      `Le mot de passe actuel de ${email} cessera immédiatement de fonctionner. Un lien à usage unique sera produit, à lui transmettre pour qu'il choisisse un nouveau mot de passe.`,
       {confirmLabel:"Réinitialiser",danger:true});
     if(!ok) return;
     await accesAppelFonction({action:"reinitialiser",email},"Accès réinitialisé");
@@ -783,7 +793,7 @@ const ACTS = {
       if(SB&&SB_USER&&currentRole()==="admin"){
         try{
           if(st.auditLog.length){
-            const rows=st.auditLog.slice().reverse().slice(-1000).map(x=>({actor_id:null,actor_email:x.actor||null,action:x.label||"Restauration historique",detail:x.detail||null,entity_type:x.entity||"application",entity_id:x.entityId||null,created_at:x.at||nowISO()}));
+            const rows=st.auditLog.slice().reverse().slice(-1000).map(x=>({actor_id:SB_USER.id,actor_email:x.actor||null,action:x.label||"Restauration historique",detail:[x.actor?`Auteur d'origine : ${x.actor}`:"",x.at?`date d'origine : ${x.at}`:"",x.detail||""].filter(Boolean).join(" · ")||null,entity_type:x.entity||"application",entity_id:x.entityId||null,created_at:x.at||nowISO()}));
             const {error}=await SB.from("serre_audit_log").insert(rows);if(error&&!['42P01','PGRST205'].includes(error.code))throw error;
           }
           if(st.errorLog.length){
@@ -860,8 +870,8 @@ const ACTS = {
     const h={};
     try{const t=performance.now(),{error}=await SB.from("profiles").select("id",{head:true,count:"exact"});if(error)throw error;let logs="";try{const {error:ae}=await SB.from("serre_audit_log").select("id",{head:true,count:"exact"});logs=ae?" · migration v33 à appliquer":" · audit SQL actif";}catch(_){logs=" · migration v33 à vérifier";}h.supabase={ok:true,detail:`Authentification et base joignables · ${Math.round(performance.now()-t)} ms${logs}`};}catch(e){h.supabase={ok:false,detail:"Base indisponible : "+(e?.message||e)};captureAppError(e,"health.supabase");}
     const base=String(st.ys.proxy||DEFAULT_RENDER_PROXY).replace(/\/$/,"");
-    try{const t=performance.now(),r=await fetch(base+"/health/rne",{headers:{Accept:"application/json"}}),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`HTTP ${r.status}`);h.rne={ok:true,detail:`Connecteur RNE · ${Math.round(performance.now()-t)} ms${j.parser?` · parseur ${j.parser}`:""}`};}catch(e){h.rne={ok:false,detail:"RNE indisponible : "+(e?.message||e)};captureAppError(e,"health.rne");}
-    try{const t=performance.now(),r=await fetch(base+"/health/yousign?env="+encodeURIComponent(st.ys.env)),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`HTTP ${r.status}`);h.yousign={ok:true,detail:`Yousign ${j.env||st.ys.env} · ${Math.round(performance.now()-t)} ms`};}catch(e){h.yousign={ok:false,detail:"Yousign indisponible : "+(e?.message||e)};captureAppError(e,"health.yousign");}
+    try{const t=performance.now(),r=await proxyFetch(base+"/health/rne",{headers:{Accept:"application/json"}}),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`HTTP ${r.status}`);h.rne={ok:true,detail:`Connecteur RNE · ${Math.round(performance.now()-t)} ms${j.parser?` · parseur ${j.parser}`:""}`};}catch(e){h.rne={ok:false,detail:"RNE indisponible : "+(e?.message||e)};captureAppError(e,"health.rne");}
+    try{const t=performance.now(),r=await proxyFetch(base+"/health/yousign?env="+encodeURIComponent(st.ys.env)),j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`HTTP ${r.status}`);h.yousign={ok:true,detail:`Yousign ${j.env||st.ys.env} · ${Math.round(performance.now()-t)} ms`};}catch(e){h.yousign={ok:false,detail:"Yousign indisponible : "+(e?.message||e)};captureAppError(e,"health.yousign");}
     /* v53.5 : le rendu PDF passe par un POST avec un corps JSON, donc par
        une requête préalable CORS — contrairement aux sondes /health, qui
        sont de simples GET. Un service joignable pouvait donc afficher tout
@@ -869,7 +879,7 @@ const ACTS = {
        point d'entrée réellement utilisé, avec la même méthode. */
     try{
       const t=performance.now();
-      const r=await fetch(base+"/api/pdf",{method:"POST",headers:{"Content-Type":"application/json"},
+      const r=await proxyFetch(base+"/api/pdf",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({filename:"diagnostic.pdf",document_type:"diagnostic",
           html:"<!DOCTYPE html><html lang=\"fr\"><head><meta charset=\"utf-8\"></head><body>Diagnostic</body></html>"})});
       if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||`HTTP ${r.status}`); }

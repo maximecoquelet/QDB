@@ -1,27 +1,25 @@
-# Accès collaborateurs — mise en service
+# Accès collaborateurs — mise en service (v54)
 
-Trois opérations, une seule fois. Ensuite tout se fait depuis l'application.
+Depuis la v54, il n'existe plus de mot de passe provisoire commun. Chaque accès
+est ouvert par un **lien à usage unique**, propre au compte, que l'administrateur
+transmet au collaborateur.
 
-## 1. Migration SQL
+## 1. Réglages Supabase (une fois)
 
-Supabase → **SQL Editor** → coller `sql/v47-acces-collaborateurs.sql` → Run.
+Supabase → **Authentication** :
 
-Le script ajoute à `profiles` les colonnes `must_change_password`, `password_set_at`,
-`invited_at`, `invited_by`, et crée la fonction `finish_password_change()`.
-Les comptes déjà en service ne sont pas affectés : ils gardent leur mot de passe.
+- **Sign In / Providers** → décocher **« Allow new users to sign up »**.
+  Sans cela, n'importe qui peut se créer un compte avec la clé publique de
+  l'application et lire tous les dossiers.
+- **URL Configuration** → **Site URL** = l'adresse Netlify de l'application ;
+  **Redirect URLs** : ajouter la même adresse. Les liens d'invitation et de
+  réinitialisation ramènent à cette adresse ; une adresse non déclarée est refusée.
+- **Providers → Email → Email OTP Expiration** : durée de validité des liens
+  (3 600 s par défaut ; 86 400 s au maximum).
 
-## 2. Mot de passe provisoire du cabinet
+## 2. Migration SQL
 
-C'est un secret de la fonction, jamais une valeur écrite dans l'application.
-
-```bash
-supabase secrets set MOT_DE_PASSE_PROVISOIRE='ChoisissezUneChaine2026!'
-```
-
-Dix caractères minimum. Pour le changer plus tard, relancer la même commande :
-aucun redéploiement n'est nécessaire, et les comptes déjà ouverts ne sont pas touchés.
-
-Depuis l'interface : Supabase → Edge Functions → `acces-collaborateur` → Secrets.
+SQL Editor → coller `sql/v54-securite.sql` → Run (après 00, v47, v49 et v50).
 
 ## 3. Déploiement de la fonction
 
@@ -29,56 +27,43 @@ Depuis l'interface : Supabase → Edge Functions → `acces-collaborateur` → S
 supabase functions deploy acces-collaborateur
 ```
 
-`SUPABASE_URL`, `SUPABASE_ANON_KEY` et `SUPABASE_SERVICE_ROLE_KEY` sont fournis
-automatiquement par la plateforme : il n'y a rien à configurer pour eux.
+Aucun secret à fournir. L'ancien secret peut être supprimé :
+
+```bash
+supabase secrets unset MOT_DE_PASSE_PROVISOIRE
+```
 
 ---
 
 ## Usage courant
 
-**Ouvrir un accès.** Identité du cabinet → Réglages → *Droits utilisateurs* →
-**Ouvrir un accès collaborateur**. Saisir l'e-mail et le rôle. L'application affiche
-le mot de passe provisoire, à communiquer de vive voix ou par SMS — pas par le même
-canal que l'identifiant.
+**Ouvrir un accès.** Réglages → *Utilisateurs* → **Ouvrir un accès collaborateur**.
+Saisir l'e-mail et le rôle. L'application affiche un lien à usage unique, à copier
+et à transmettre au seul collaborateur concerné. En le suivant, il choisit son mot
+de passe (12 caractères, trois types de caractères au minimum).
 
-**Première connexion du collaborateur.** L'application ne s'ouvre pas : un écran
-lui demande de choisir son mot de passe (12 caractères, trois types de caractères
-au minimum). Tant qu'il n'a pas validé, aucune donnée du cabinet n'est chargée.
+**Mot de passe perdu.** Le collaborateur utilise « Mot de passe oublié ? » sur
+l'écran de connexion (nécessite l'envoi de courriels par Supabase, voir ci-dessous),
+ou un administrateur clique **Réinitialiser** en face de son nom : l'ancien mot de
+passe cesse immédiatement de fonctionner et un nouveau lien est produit.
 
-**Mot de passe perdu.** Soit le collaborateur utilise « Mot de passe oublié ? » sur
-l'écran de connexion, soit un administrateur clique **Réinitialiser** en face de son
-nom : le compte repart sur le mot de passe provisoire et l'écran de choix réapparaît.
+**Lien expiré ou égaré.** Cliquer **Réinitialiser** : un nouveau lien est produit,
+l'ancien ne fonctionne plus.
 
 **Départ d'un collaborateur.** Supabase → Authentication → Users → supprimer le
-compte. C'est la seule opération qui reste hors de l'application, volontairement.
+compte.
 
----
+## Courriels Supabase
 
-## Le point de vigilance
-
-Le mot de passe provisoire est **commun à tous les nouveaux accès**. Entre la
-création d'un compte et la première connexion du collaborateur, ce compte est
-ouvert à toute personne qui connaît cette chaîne — y compris pour y fixer un
-mot de passe et en prendre le contrôle.
-
-La page des droits affiche donc, en permanence, la liste des comptes encore dans
-cet état et depuis combien de jours. Deux réflexes : créer le compte le jour de
-l'arrivée plutôt qu'à l'avance, et réinitialiser tout accès qui traîne.
-
-Si vous préférez supprimer ce risque, la même fonction peut être basculée sur
-`inviteUserByEmail` : le collaborateur reçoit un lien à usage unique et choisit
-son mot de passe sans qu'aucun secret partagé n'existe. Changement d'une dizaine
-de lignes dans `functions/acces-collaborateur/index.ts`.
+La création d'accès n'envoie aucun courriel : le lien est remis par l'administrateur.
+En revanche, « Mot de passe oublié ? » envoie un courriel. Le service d'envoi
+intégré de Supabase est limité à quelques messages par heure et réservé aux adresses
+des membres du projet ; pour un usage réel, configurer un SMTP du cabinet
+(Authentication → Emails → SMTP Settings).
+Source : https://supabase.com/docs/guides/auth/auth-smtp
 
 ## Portée du blocage
 
-L'écran de choix du mot de passe est appliqué par l'application. Il arrête un
-collaborateur, pas quelqu'un qui manipulerait le navigateur : une fois
-authentifié, le compte reste autorisé côté base par les politiques RLS.
-
-Pour un verrouillage réellement opposable, il faut porter le drapeau dans
-`app_metadata` (donc dans le jeton) et ajouter à chaque politique RLS une
-condition `coalesce((auth.jwt() -> 'app_metadata' ->> 'must_change_password')::boolean, false) = false`.
-Cela suppose de reprendre l'ensemble des politiques existantes et une seconde
-fonction pour lever le drapeau — à faire si des données sensibles justifient
-cette rigueur.
+L'écran de choix du mot de passe est imposé par l'application. Après la v54,
+il n'existe plus de mot de passe connu de plusieurs personnes : un compte en
+attente ne peut être ouvert que par celui qui détient son lien.

@@ -1,27 +1,33 @@
 // =====================================================================
-// SERRE — Edge Function « acces-collaborateur »
+// SERRE — Edge Function « acces-collaborateur »  (v54)
 // ---------------------------------------------------------------------
 // Seule voie de création d'un compte collaborateur. Elle détient la clé
 // `service_role`, qui ne doit jamais figurer dans l'application : celle-ci
 // est publique, son code est lisible par tout visiteur.
 //
-// Deux actions :
-//   creer        — crée le compte Supabase, l'e-mail est auto-confirmé, le
-//                  mot de passe est le mot de passe provisoire du cabinet,
-//                  et le profil est créé avec le rôle demandé.
-//   reinitialiser — replace un compte existant sur le mot de passe
-//                  provisoire (collaborateur qui a perdu le sien).
+// v54 : il n'existe plus de mot de passe provisoire commun. Chaque accès
+// est ouvert par un LIEN À USAGE UNIQUE, propre au compte, produit par
+// Supabase (`auth.admin.generateLink`). L'administrateur le transmet au
+// collaborateur, qui choisit lui-même son mot de passe.
 //
-// Dans les deux cas le drapeau `must_change_password` est remis à vrai :
-// l'application impose l'écran de choix de mot de passe à la connexion
-// suivante.
+// Deux actions :
+//   creer         — crée le compte (lien de type « invite ») et le profil
+//                   avec le rôle demandé.
+//   reinitialiser — rend le mot de passe actuel inutilisable (valeur
+//                   aléatoire jamais communiquée) et produit un lien de
+//                   type « recovery ».
+//
+// Dans les deux cas le drapeau `must_change_password` est remis à vrai.
+//
+// Aucun secret à configurer : SUPABASE_URL, SUPABASE_ANON_KEY et
+// SUPABASE_SERVICE_ROLE_KEY sont fournis par la plateforme. Le secret
+// MOT_DE_PASSE_PROVISOIRE de la v47 peut être supprimé.
 //
 // Déploiement :
-//   supabase secrets set MOT_DE_PASSE_PROVISOIRE='…'
 //   supabase functions deploy acces-collaborateur
 // =====================================================================
 
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.118.0";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -38,6 +44,25 @@ function reponse(body: unknown, status = 200) {
   });
 }
 
+// Mot de passe aléatoire de 48 caractères, jamais affiché ni conservé :
+// il sert uniquement à rendre l'ancien mot de passe inutilisable.
+function motDePasseJetable(): string {
+  const octets = new Uint8Array(36);
+  crypto.getRandomValues(octets);
+  return btoa(String.fromCharCode(...octets));
+}
+
+// L'adresse de retour n'est retenue que si elle est en HTTPS (ou locale) ;
+// Supabase la refuse de toute façon si elle ne figure pas dans
+// Authentication → URL Configuration → Redirect URLs.
+function adresseRetour(v: unknown): string | undefined {
+  try {
+    const u = new URL(String(v ?? ""));
+    if (u.protocol === "https:" || u.hostname === "localhost") return u.origin + u.pathname;
+  } catch (_) { /* adresse absente ou illisible */ }
+  return undefined;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return reponse({ error: "Méthode non autorisée." }, 405);
@@ -45,11 +70,6 @@ Deno.serve(async (req) => {
   const url = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const motDePasseProvisoire = Deno.env.get("MOT_DE_PASSE_PROVISOIRE") ?? "";
-
-  if (!motDePasseProvisoire || motDePasseProvisoire.length < 10) {
-    return reponse({ error: "Le mot de passe provisoire du cabinet n'est pas configuré (secret MOT_DE_PASSE_PROVISOIRE, 10 caractères minimum)." }, 500);
-  }
 
   // ---------------------------------------------------------------
   // 1. Qui appelle ? On relit le jeton du navigateur côté serveur : le
@@ -82,7 +102,9 @@ Deno.serve(async (req) => {
   const action = String(corps.action ?? "creer");
   const email = String(corps.email ?? "").trim().toLowerCase();
   const role = String(corps.role ?? "collaborateur");
+  const redirectTo = adresseRetour(corps.redirectTo);
 
+  if (!["creer", "reinitialiser"].includes(action)) return reponse({ error: "Action inconnue." }, 400);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return reponse({ error: "Adresse e-mail invalide." }, 400);
   if (!ROLES.includes(role)) return reponse({ error: "Rôle inconnu." }, 400);
 
@@ -96,11 +118,24 @@ Deno.serve(async (req) => {
       .from("profiles").select("id,email,role").eq("email", email).maybeSingle();
     if (rechercheError) return reponse({ error: rechercheError.message }, 500);
     if (!cible) return reponse({ error: "Aucun compte ne correspond à cette adresse." }, 404);
+    if (cible.id === user.id) {
+      return reponse({ error: "Utilisez « Mot de passe oublié ? » pour votre propre compte." }, 400);
+    }
 
+    // L'ancien mot de passe cesse immédiatement de fonctionner.
     const { error: majError } = await admin.auth.admin.updateUserById(cible.id, {
-      password: motDePasseProvisoire,
+      password: motDePasseJetable(),
     });
     if (majError) return reponse({ error: "Réinitialisation impossible : " + majError.message }, 500);
+
+    const { data: lien, error: lienError } = await admin.auth.admin.generateLink({
+      type: "recovery",
+      email,
+      options: redirectTo ? { redirectTo } : undefined,
+    });
+    if (lienError || !lien?.properties?.action_link) {
+      return reponse({ error: "Lien de réinitialisation non produit : " + (lienError?.message ?? "réponse vide") }, 500);
+    }
 
     await admin.from("profiles").update({
       must_change_password: true,
@@ -114,8 +149,8 @@ Deno.serve(async (req) => {
       action: "reinitialiser",
       email,
       role: cible.role,
-      motDePasseProvisoire,
-      message: "Le compte est replacé sur le mot de passe provisoire. Le choix d'un nouveau mot de passe sera imposé à la prochaine connexion.",
+      lien: lien.properties.action_link,
+      message: "L'ancien mot de passe ne fonctionne plus. Transmettez le lien ci-dessous au collaborateur : il choisira un nouveau mot de passe en le suivant.",
     });
   }
 
@@ -126,20 +161,24 @@ Deno.serve(async (req) => {
     .from("profiles").select("id").eq("email", email).maybeSingle();
   if (existant) return reponse({ error: "Un compte existe déjà pour cette adresse. Utilisez la réinitialisation." }, 409);
 
-  const { data: cree, error: creationError } = await admin.auth.admin.createUser({
+  // `generateLink` de type « invite » crée le compte sans mot de passe et
+  // renvoie le lien d'acceptation, sans envoyer de courriel.
+  const { data: invitation, error: creationError } = await admin.auth.admin.generateLink({
+    type: "invite",
     email,
-    password: motDePasseProvisoire,
-    email_confirm: true, // pas de courriel de confirmation : l'accès est ouvert par le cabinet
-    user_metadata: { cree_par: user.email ?? user.id },
+    options: {
+      data: { cree_par: user.email ?? user.id },
+      ...(redirectTo ? { redirectTo } : {}),
+    },
   });
-  if (creationError || !cree?.user) {
+  if (creationError || !invitation?.user || !invitation?.properties?.action_link) {
     return reponse({ error: "Création impossible : " + (creationError?.message ?? "réponse vide") }, 500);
   }
 
-  // Le profil peut déjà exister si un trigger `on auth.users` est en place :
-  // on remonte donc en upsert plutôt qu'en insert.
+  // Le profil existe déjà si le trigger `profil_a_l_inscription` est en
+  // place : on remonte donc en upsert plutôt qu'en insert.
   const { error: profilUpsertError } = await admin.from("profiles").upsert({
-    id: cree.user.id,
+    id: invitation.user.id,
     email,
     role,
     must_change_password: true,
@@ -151,7 +190,7 @@ Deno.serve(async (req) => {
 
   if (profilUpsertError) {
     // On ne laisse pas un compte d'authentification orphelin derrière nous.
-    await admin.auth.admin.deleteUser(cree.user.id);
+    await admin.auth.admin.deleteUser(invitation.user.id);
     return reponse({ error: "Profil non créé, le compte a été annulé : " + profilUpsertError.message }, 500);
   }
 
@@ -159,7 +198,7 @@ Deno.serve(async (req) => {
     action: "creer",
     email,
     role,
-    motDePasseProvisoire,
-    message: "Compte créé. Communiquez le mot de passe provisoire au collaborateur : il devra en choisir un autre dès sa première connexion.",
+    lien: invitation.properties.action_link,
+    message: "Compte créé. Transmettez le lien ci-dessous au collaborateur : il choisira son mot de passe en le suivant.",
   });
 });

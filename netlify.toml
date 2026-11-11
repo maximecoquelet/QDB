@@ -4,10 +4,27 @@
 # Le dossier supabase/ contient le SQL et le code de l'Edge Function : ce sont
 # des éléments d'administration, pas des fichiers du site. Ils ne contiennent
 # aucune clé, mais rien ne justifie de les exposer publiquement.
+# v54 : `force = true` est indispensable — sans lui, Netlify sert le fichier
+# s'il existe et la règle ne s'applique jamais.
+# Source : https://docs.netlify.com/routing/redirects/rewrites-proxies/#shadowing
 [[redirects]]
   from = "/supabase/*"
   status = 404
   to = "/index.html"
+  force = true
+
+# v54 : mêmes raisons pour le code proposé au serveur Render et la documentation.
+[[redirects]]
+  from = "/serveur-render/*"
+  status = 404
+  to = "/index.html"
+  force = true
+
+[[redirects]]
+  from = "/docs/*"
+  status = 404
+  to = "/index.html"
+  force = true
 
 [[headers]]
   for = "/*"
@@ -16,6 +33,16 @@
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Frame-Options = "DENY"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000"
+    # v54 — Content-Security-Policy : le navigateur refuse tout script, toute
+    # connexion et tout cadre qui ne figurent pas dans cette liste.
+    #  - 'unsafe-eval' : requis par les formules de tarification (20-pricing.js,
+    #    `new Function`) ;
+    #  - 'unsafe-inline' (styles seulement) : l'interface pose des styles en ligne ;
+    #  - connect-src : Supabase et le service Render. SI L'URL DU SERVICE RENDER
+    #    CHANGE (Réglages › Signature Yousign), l'ajouter ici, sinon les appels
+    #    seront bloqués.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://ueuhedaqpzxmjrcjktmw.supabase.co wss://ueuhedaqpzxmjrcjktmw.supabase.co https://serre-yousign-server.onrender.com; frame-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 [[headers]]
   for = "/index.html"
