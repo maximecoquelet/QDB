@@ -1,0 +1,28 @@
+[build]
+  publish = "."
+
+# Le dossier supabase/ contient le SQL et le code de l'Edge Function : ce sont
+# des éléments d'administration, pas des fichiers du site. Ils ne contiennent
+# aucune clé, mais rien ne justifie de les exposer publiquement.
+[[redirects]]
+  from = "/supabase/*"
+  status = 404
+  to = "/index.html"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600, must-revalidate"
