@@ -10,7 +10,7 @@
    l'application v54 joint à chaque appel (en-tête Authorization). Le jeton
    est vérifié auprès de Supabase lui-même (GET /auth/v1/user).
 
-   Variables d'environnement à déclarer dans Render → Environment :
+   Variables d'environnement FACULTATIVES (valeurs par défaut intégrées) :
      SUPABASE_URL       https://ueuhedaqpzxmjrcjktmw.supabase.co
      SUPABASE_ANON_KEY  la clé « publishable » (sb_publishable_…), la même
                         que dans assets/js/00-core.js — elle n'est pas secrète.
@@ -27,8 +27,11 @@
 
 const crypto = require("crypto");
 
-const SUPABASE_URL = String(process.env.SUPABASE_URL || "").replace(/\/$/, "");
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "";
+/* Valeurs par défaut : celles du projet SERRE. Elles sont publiques (déjà
+   présentes dans le code de l'application) ; les variables d'environnement
+   Render, si elles sont déclarées, les remplacent. */
+const SUPABASE_URL = String(process.env.SUPABASE_URL || "https://ueuhedaqpzxmjrcjktmw.supabase.co").replace(/\/$/, "");
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "sb_publishable_QH-5FvLviSJJZD3Fne_CPQ_KeYWDrGm";
 
 /* Seule la route de santé de base reste publique : Render l'interroge pour
    savoir si le service est en vie. Elle ne révèle rien. */

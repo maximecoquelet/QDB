@@ -26,7 +26,7 @@ utilisation du rendu PDF et de l'accès RNE/INPI du cabinet aux frais de celui-c
    (Si le projet est en modules ES — `import` au lieu de `require` — remplacer
    la dernière ligne du module par `export { verifierJeton };` et
    `require("crypto")` par `import crypto from "crypto";`.)
-3. Render → service → **Environment** → ajouter :
+3. Facultatif — l'adresse et la clé publique du projet sont intégrées au module ; les déclarer dans Render → **Environment** seulement si le projet Supabase change :
    - `SUPABASE_URL` = `https://ueuhedaqpzxmjrcjktmw.supabase.co`
    - `SUPABASE_ANON_KEY` = la clé `sb_publishable_…` (celle de `assets/js/00-core.js`)
 4. Déployer **après** la mise en ligne de l'application v54 sur Netlify :
