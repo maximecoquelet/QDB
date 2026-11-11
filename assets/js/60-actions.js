@@ -109,6 +109,7 @@ async function accesAppelFonction(corps,titreSucces){
       <p>${esc(data?.message||"Opération effectuée.")}</p>
       <div class="grid" style="margin-top:12px">
         <label class="f"><span>Adresse e-mail</span><input type="text" value="${esc(data?.email||corps.email)}" readonly></label>
+        ${!lien&&data?.motDePasseProvisoire?`<label class="f"><span>Mot de passe provisoire</span><input type="text" value="${esc(data.motDePasseProvisoire)}" readonly><div class="hint">Fonction Supabase antérieure à la v54 : le mot de passe provisoire est commun à tous les nouveaux accès. À communiquer de vive voix ou par un canal distinct de la messagerie.</div></label>`:""}
         ${lien?`<label class="f"><span>Lien d'accès à usage unique</span><textarea readonly data-lien-acces style="min-height:90px;font-family:monospace;font-size:11px">${esc(lien)}</textarea>
         <div class="row" style="margin-top:6px"><button class="btn sm" type="button" data-copier-lien>Copier le lien</button></div>
         <div class="hint">À transmettre au seul collaborateur concerné, sur son adresse professionnelle. Le lien ne sert qu'une fois et expire (durée réglée dans Supabase → Authentication → Providers → Email). Passé ce délai, cliquez « Réinitialiser » pour en produire un nouveau.</div></label>`:""}
@@ -751,7 +752,7 @@ const ACTS = {
     const email=el.dataset.email||"";
     if(!email) return toast("Adresse e-mail inconnue pour ce profil.",true);
     const ok=await askConfirm("Réinitialiser l'accès",
-      `Le mot de passe actuel de ${email} cessera immédiatement de fonctionner. Un lien à usage unique sera produit, à lui transmettre pour qu'il choisisse un nouveau mot de passe.`,
+      `Le mot de passe actuel de ${email} cessera immédiatement de fonctionner. Un moyen d'accès provisoire sera affiché, à lui transmettre pour qu'il choisisse un nouveau mot de passe.`,
       {confirmLabel:"Réinitialiser",danger:true});
     if(!ok) return;
     await accesAppelFonction({action:"reinitialiser",email},"Accès réinitialisé");
