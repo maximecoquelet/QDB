@@ -19,7 +19,9 @@ const FJ = {
   erreur: "",
   filtre: "tous",      /* tous | encours | afacturer | facture */
   recherche: "",
-  tri: "facturation"
+  tri: "facturation",
+  colonneEcarte: false, /* script v55.1 passé : les retraits sont conservés en base */
+  derniereSync: 0
 };
 
 const FJ_TYPES = [
@@ -40,8 +42,60 @@ async function fjInitialiser(){
     const {data,error}=await SB.rpc("a_acces_facturation_juridique");
     if(error || data!==true) return;   /* fonction absente ou compte non autorisé : rien ne s'affiche */
     FJ.acces=true;
+    try{ const {error:e2}=await SB.from("facturation_juridique").select("ecarte").limit(1); FJ.colonneEcarte=!e2; }catch(_){ FJ.colonneEcarte=false; }
     await fjCharger();
+    const n=await fjSynchroniser();
+    if(n) setTimeout(()=>toast(`Facturation juridique : ${n} dossier(s) validé(s) transféré(s) automatiquement.`),1200);
   }catch(_){ FJ.acces=false; }
+}
+
+/* Lignes affichées : hors dossiers retirés du suivi. */
+const fjVisibles = () => FJ.lignes.filter(l=>!l.ecarte);
+
+/* =====================================================================
+   v55.1 — TRANSFERT AUTOMATIQUE
+   Tout dossier de devis signé ou validé (même critère que l'onglet
+   Chiffre d'affaires) qui porte des honoraires juridiques ponctuels —
+   missions exceptionnelles juridiques comprises — reçoit sa ligne de
+   suivi, quel que soit le collaborateur qui l'a validé.
+
+   Le transfert se fait depuis le compte autorisé (les autres comptes
+   n'ont pas accès à la table) : au chargement de l'application, puis à
+   chaque retour sur l'écran.
+
+   Point de départ : seuls les dossiers validés à partir de la mise en
+   service du suivi (première ligne créée) sont transférés d'office ; les
+   plus anciens restent proposés dans la liste « non encore suivis ».
+   ===================================================================== */
+function fjDateDepart(){
+  const dates=FJ.lignes.map(l=>String(l.created_at||"").slice(0,10)).filter(Boolean).sort();
+  return dates[0]||today();
+}
+
+async function fjSynchroniser(){
+  FJ.derniereSync=Date.now();
+  if(!FJ.acces) return 0;
+  const depart=fjDateDepart();
+  const candidats=fjDossiersASuivre().filter(x=>String(x.date||"").slice(0,10)>=depart);
+  if(!candidats.length) return 0;
+  let n=0;
+  for(const {d} of candidats){
+    const prop=fjDepuisDossier(d);
+    /* Ligne déjà saisie à la main ou importée pour ce client, sans lien :
+       on la rattache au dossier plutôt que d'en créer une seconde. */
+    const libres=fjVisibles().filter(l=>!l.devis_id&&normClient(l.dossier)===normClient(prop.dossier));
+    const memeMontant=libres.filter(l=>Math.abs((+l.honoraires||0)-prop.honoraires)<0.01);
+    const cible=memeMontant.length===1?memeMontant[0]:(libres.length===1?libres[0]:null);
+    if(cible){
+      const {data,error}=await SB.from("facturation_juridique").update({devis_id:d.id,date_signature:cible.date_signature||prop.date_signature||null}).eq("id",cible.id).select();
+      if(!error&&data?.[0]){ Object.assign(cible,data[0]); }
+      continue;
+    }
+    const {data,error}=await SB.from("facturation_juridique").insert(fjLigneVersBase(prop)).select();
+    if(error){ if(error.code!=="23505") console.warn("Transfert juridique",error.message); continue; } /* 23505 : déjà transféré par un autre onglet */
+    if(data?.[0]){ FJ.lignes.push(data[0]); n++; }
+  }
+  return n;
 }
 
 async function fjCharger(){
@@ -61,7 +115,8 @@ function fjLigneVersBase(l){
     date_projet:d(l.date_projet), date_signature:d(l.date_signature),
     date_depot_gtc:d(l.date_depot_gtc), date_fin_formalite:d(l.date_fin_formalite),
     mois_facturation:mois(l.mois_facturation), commentaires:t(l.commentaires),
-    devis_id:t(l.devis_id)
+    devis_id:t(l.devis_id),
+    ...(l.ecarte===true?{ecarte:true}:{})
   };
 }
 
@@ -81,6 +136,17 @@ async function fjEnregistrer(ligne){
 }
 
 async function fjSupprimer(id){
+  const l=FJ.lignes.find(x=>x.id===id);
+  /* Ligne liée à un dossier de devis : on la marque retirée au lieu de
+     l'effacer, sinon le transfert automatique la recréerait. */
+  if(l?.devis_id){
+    if(FJ.colonneEcarte){
+      const {data,error}=await SB.from("facturation_juridique").update({ecarte:true}).eq("id",id).select();
+      if(error||!data?.length){ toast("Retrait impossible"+(error?" : "+error.message:"."),true); return false; }
+      Object.assign(l,data[0]); return true;
+    }
+    fjMasquer(l.devis_id);
+  }
   const {data,error}=await SB.from("facturation_juridique").delete().eq("id",id).select("id");
   if(error||!data?.length){ toast("Suppression impossible"+(error?" : "+error.message:"."),true); return false; }
   FJ.lignes=FJ.lignes.filter(x=>x.id!==id); return true;
@@ -106,7 +172,7 @@ const fjMoisLong = iso => { if(!iso) return ""; const d=new Date(String(iso).sli
 function fjSynthese(){
   const moisCourant=today().slice(0,7), annee=today().slice(0,4);
   const s={encours:{n:0,m:0},afacturer:{n:0,m:0},moisCourant:0,annee:0,parMois:{}};
-  for(const l of FJ.lignes){
+  for(const l of fjVisibles()){
     const h=+l.honoraires||0, st_=fjStatut(l);
     if(st_==="encours"){ s.encours.n++; s.encours.m+=h; }
     if(st_==="afacturer"){ s.afacturer.n++; s.afacturer.m+=h; }
@@ -141,11 +207,14 @@ function fjDossiersASuivre(){
 }
 
 function fjDepuisDossier(d){
-  const m=modOf(d), jur=+honorairesParCategorie(d,m).cats?.Juridique?.pon||0;
+  const m=modOf(d), cat=honorairesParCategorie(d,m).cats?.Juridique||{}, jur=+cat.pon||0;
   const titre=intituleDevis(d);
+  /* La mission reprend les intitulés des prestations juridiques ponctuelles
+     du devis (missions exceptionnelles comprises). */
+  const libelles=[...new Set((cat.lignes||[]).filter(x=>x.per==="ponctuelle"&&(+x.montant||0)>0).map(x=>String(x.label||"").trim()).filter(Boolean))];
   return {
     dossier:d.client?.raison||"", type_operation:"",
-    mission:titre&&titre!=="Devis"?titre:(m?.titre||""),
+    mission:(libelles.join(" + ").slice(0,300))||(titre&&titre!=="Devis"?titre:(m?.titre||"")),
     honoraires:Math.round(jur*100)/100,
     date_signature:String(dateSignatureDe(d)||"").slice(0,10),
     devis_id:d.id
@@ -157,19 +226,19 @@ VIEWS.juridique = () => {
   if(!FJ.acces) return `<div class="top"><h1>Facturation juridique</h1></div><div class="wrap"><div class="notice">Accès non autorisé.</div></div>`;
   const s=fjSynthese(), aSuivre=fjDossiersASuivre();
   const q=normClient(FJ.recherche||"");
-  let lignes=FJ.lignes.filter(l=>FJ.filtre==="tous"||fjStatut(l)===FJ.filtre);
+  let lignes=fjVisibles().filter(l=>FJ.filtre==="tous"||fjStatut(l)===FJ.filtre);
   if(q) lignes=lignes.filter(l=>normClient(`${l.dossier} ${l.type_operation||""} ${l.mission||""} ${l.commentaires||""}`).includes(q));
   const ordre={encours:0,afacturer:1,facture:2};
   lignes.sort((a,b)=>FJ.tri==="dossier"
     ? String(a.dossier).localeCompare(String(b.dossier),"fr")
     : (ordre[fjStatut(a)]-ordre[fjStatut(b)]) || String(b.mois_facturation||b.date_fin_formalite||b.date_signature||"").localeCompare(String(a.mois_facturation||a.date_fin_formalite||a.date_signature||"")));
   const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
-  const compte=f=>f==="tous"?FJ.lignes.length:FJ.lignes.filter(l=>fjStatut(l)===f).length;
+  const compte=f=>f==="tous"?fjVisibles().length:fjVisibles().filter(l=>fjStatut(l)===f).length;
   const onglet=(f,l)=>`<button class="vue-onglet ${FJ.filtre===f?"on":""}" data-fj-filtre="${f}">${l} <span class="vue-compte">${compte(f)}</span></button>`;
   const dt=v=>v?dateFR(v):`<span class="dim">—</span>`;
   const moisRecents=Object.keys(s.parMois).sort().reverse().slice(0,12);
 
-  return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes</span><span class="spacer"></span>
+  return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${FJ.colonneEcarte?"":` · <b>relancer le script v55 pour la mise à jour v55.1</b>`}</span><span class="spacer"></span>
     <button class="btn" data-fj-import>Importer un fichier</button>
     <button class="btn" data-fj-export>Exporter en CSV</button>
     <button class="btn p" data-fj-nouveau>Nouvelle ligne</button>
@@ -247,7 +316,7 @@ async function fjEditer(ligne,titre){
   const r=await fjFormulaire(ligne,titre);
   if(!r) return;
   if(r.__supprimer){
-    if(!await askConfirm("Supprimer la ligne",`La ligne « ${r.dossier} » sera supprimée définitivement.`,{confirmLabel:"Supprimer",danger:true})) return;
+    if(!await askConfirm("Supprimer la ligne",r.devis_id?`La ligne « ${r.dossier} » sera retirée du suivi. Le dossier de devis lié ne sera plus transféré.`:`La ligne « ${r.dossier} » sera supprimée définitivement.`,{confirmLabel:"Supprimer",danger:true})) return;
     if(await fjSupprimer(r.id)){ toast("Ligne supprimée."); render(); }
     return;
   }
@@ -326,6 +395,7 @@ function fjAnalyserTableau(tab){
   if(pos.dossier===undefined) throw new Error("Colonne « Dossier » introuvable sur la première ligne du fichier.");
   const existants=new Set(FJ.lignes.map(l=>fjSansAccent(`${l.dossier}|${l.mission||""}|${+l.honoraires||0}`)));
   const lignes=[], alertes=[]; let doublons=0;
+  const liesDevis=new Set(FJ.lignes.map(l=>l.devis_id).filter(Boolean));
   tab.slice(1).forEach((r,idx)=>{
     const val=k=>pos[k]===undefined?"":r[pos[k]];
     const dossier=String(val("dossier")??"").trim();
@@ -348,7 +418,7 @@ function fjAnalyserTableau(tab){
     if(existants.has(fjSansAccent(`${l.dossier}|${l.mission||""}|${+l.honoraires||0}`))){ doublons++; return; }
     /* Rattachement automatique à un dossier signé de l'outil, s'il n'y en a qu'un pour ce client. */
     const cands=(st.devis||[]).filter(d=>!isArchivedDevis(d)&&normClient(d.client?.raison||"")===normClient(dossier));
-    if(cands.length===1) l.devis_id=cands[0].id;
+    if(cands.length===1&&!liesDevis.has(cands[0].id)){ l.devis_id=cands[0].id; liesDevis.add(cands[0].id); }
     lignes.push(l);
   });
   return {lignes, alertes, doublons};
@@ -409,7 +479,14 @@ function fjLier(){
   un("[data-fj-modifier]",b=>b.onclick=()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjModifier); if(l) fjEditer(l,"Modifier la ligne"); });
   un("[data-fj-facturer]",b=>b.onclick=async()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjFacturer); if(!l) return; if(await fjEnregistrer({...l,mois_facturation:today().slice(0,7)})){ toast("Marqué facturé ce mois-ci."); render(); } });
   un("[data-fj-suivre]",b=>b.onclick=()=>{ const d=st.devis.find(x=>x.id===b.dataset.fjSuivre); if(d) fjEditer(fjDepuisDossier(d),"Ajouter au suivi"); });
-  un("[data-fj-ignorer]",b=>b.onclick=()=>{ fjMasquer(b.dataset.fjIgnorer); render(); });
+  un("[data-fj-ignorer]",b=>b.onclick=async()=>{
+    const d=st.devis.find(x=>x.id===b.dataset.fjIgnorer);
+    if(FJ.colonneEcarte&&d){ await fjEnregistrer({...fjDepuisDossier(d),ecarte:true}); }
+    else fjMasquer(b.dataset.fjIgnorer);
+    render();
+  });
+  /* Retour sur l'écran : transfert des dossiers validés entre-temps. */
+  if(Date.now()-FJ.derniereSync>30000) fjSynchroniser().then(n=>{ if(n){ toast(`${n} dossier(s) validé(s) transféré(s) automatiquement.`); render(); } });
   un("[data-fj-devis]",b=>b.onclick=()=>{ st.id=b.dataset.fjDevis; st.view="devis1"; st.tab=rememberedTab(st.id); render(); });
   un("[data-fj-export]",b=>b.onclick=fjExporter);
   const fichier=document.querySelector("[data-fj-fichier]");

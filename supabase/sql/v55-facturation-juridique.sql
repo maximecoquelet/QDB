@@ -1,7 +1,8 @@
 -- =====================================================================
 -- SERRE v55 — SUIVI DE LA FACTURATION JURIDIQUE (ACCÈS RÉSERVÉ)
 -- ---------------------------------------------------------------------
--- À exécuter UNE FOIS dans Supabase → SQL Editor. Idempotent.
+-- À exécuter dans Supabase → SQL Editor. Idempotent : le relancer (par
+-- exemple pour la mise à jour v55.1) ne perd aucune ligne.
 --
 -- Ce script AJOUTE deux tables et une fonction. Il ne modifie aucune
 -- table, aucune politique ni aucun compte existants.
@@ -78,6 +79,28 @@ create policy fj_acces on public.facturation_juridique
 revoke all on public.facturation_juridique from anon;
 grant select, insert, update, delete on public.facturation_juridique to authenticated;
 grant select, insert, update, delete on public.facturation_juridique to service_role;
+
+-- v55.1 — Transfert automatique depuis l'outil de devis.
+-- `ecarte` : ligne retirée du suivi par l'utilisateur. Elle est conservée,
+-- invisible, pour que le dossier de devis correspondant ne soit pas
+-- transféré à nouveau.
+alter table public.facturation_juridique
+  add column if not exists ecarte boolean not null default false;
+
+-- Un dossier de devis ne donne lieu qu'à une ligne de suivi, même si deux
+-- onglets ouverts tentent le transfert au même instant.
+do $unicite$
+begin
+  if not exists (
+    select 1 from public.facturation_juridique
+     where devis_id is not null group by devis_id having count(*) > 1
+  ) then
+    execute 'create unique index if not exists fj_devis_unique on public.facturation_juridique (devis_id) where devis_id is not null';
+  else
+    raise notice 'Plusieurs lignes pointent vers le même dossier : index d''unicité non créé. Dédoublonner puis relancer le script.';
+  end if;
+end
+$unicite$;
 
 create or replace function public.fj_horodatage()
 returns trigger language plpgsql as $$
