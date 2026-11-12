@@ -1160,3 +1160,78 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
   .fj-table tfoot td{display:block;width:auto;border:0;padding:0}
   .fj-table tfoot td:empty{display:none}
 }
+
+/* =====================================================================
+   v56 — facturation juridique : ergonomie
+   ===================================================================== */
+/* Tri au clic */
+.fj-table th.fj-triable{cursor:pointer;user-select:none}
+.fj-table th.fj-triable:hover{color:var(--encre)}
+.fj-fleche{display:inline-block;margin-left:4px;font-size:10px;opacity:.35}
+.fj-table th.fj-tri-actif .fj-fleche{opacity:1;color:var(--vert)}
+
+/* Nom du dossier + carré d'étape */
+.fj-nom{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.fj-etape-choix{flex:0 0 auto;width:18px;height:18px;border-radius:5px;border:0;background:var(--fj-c,#9AA3A0);color:#fff;font:700 11px/18px var(--sans);text-align:center;cursor:pointer;padding:0;box-shadow:0 0 0 2px var(--surface,#fff),0 0 0 3px color-mix(in srgb,var(--fj-c) 50%,transparent)}
+.fj-etape-choix:hover,.fj-etape-choix:focus-visible{outline:2px solid var(--encre);outline-offset:2px}
+.fj-point{display:inline-flex;align-items:center;justify-content:center;min-width:9px;height:9px;border-radius:50%;background:var(--fj-c);margin-right:2px;color:#fff;font:700 8px/1 var(--sans)}
+.fj-point:not(:empty){min-width:15px;height:15px;font-size:10px}
+
+/* Frise d'avancement P · S · D · F */
+.fj-frise{display:inline-flex;gap:4px;white-space:nowrap}
+.fj-jalon{width:24px;height:24px;border-radius:50%;border:1.5px solid var(--reglure-f);background:transparent;color:var(--encre-55);font:700 11px/1 var(--sans);cursor:pointer;padding:0}
+.fj-jalon.fait{background:var(--fj-c,#2E9D62);border-color:var(--fj-c,#2E9D62);color:#fff}
+.fj-jalon:hover,.fj-jalon:focus-visible{outline:2px solid var(--encre);outline-offset:1px}
+
+/* Fenêtre accrochée (date, étape) */
+.fj-pop{position:absolute;z-index:1200;min-width:230px;max-width:320px;background:var(--surface,#fff);border:1px solid var(--reglure);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:10px}
+.fj-pop-titre{font-size:12px;font-weight:700;color:var(--encre-55);margin-bottom:8px}
+.fj-pop input[type=date]{width:100%;padding:7px 9px;border:1px solid var(--reglure-f);border-radius:7px;font:inherit;background:var(--surface,#fff);color:var(--encre)}
+.fj-pop-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap}
+.fj-pop-ligne{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:7px 8px;font:inherit;color:var(--encre);cursor:pointer}
+.fj-pop-ligne:hover,.fj-pop-ligne:focus-visible{background:var(--surface-soft)}
+.fj-pop-ligne.on{font-weight:700;background:var(--surface-tint)}
+.fj-pop-ligne .fj-point{width:12px;height:12px;min-width:12px}
+
+/* Bandeau « Annuler » */
+.fj-annuler{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:1300;display:flex;align-items:center;gap:14px;background:#262421;color:#F5F1EC;border-radius:10px;padding:10px 12px 10px 16px;box-shadow:0 10px 28px rgba(0,0,0,.28);font-size:13.5px;max-width:calc(100vw - 32px)}
+.fj-annuler button{background:transparent;border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:7px;padding:5px 12px;font:600 13px var(--sans);cursor:pointer;white-space:nowrap}
+.fj-annuler button:hover{background:rgba(255,255,255,.12)}
+
+/* Indicateurs repliables */
+.fj-indicateurs>summary{cursor:pointer;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--encre-55);margin-bottom:8px;list-style:none;display:inline-flex;align-items:center;gap:6px}
+.fj-indicateurs>summary::-webkit-details-marker{display:none}
+.fj-indicateurs>summary::before{content:"▸";transition:transform .15s}
+.fj-indicateurs[open]>summary::before{transform:rotate(90deg)}
+
+/* Champ de recherche harmonisé */
+.fj-page input[data-fj-recherche]{height:36px;padding:0 12px 0 34px;border:1px solid var(--reglure-f);border-radius:9px;background:var(--surface,#fff) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 20 20' fill='none' stroke='%23888' stroke-width='1.8'%3E%3Ccircle cx='8.5' cy='8.5' r='5.5'/%3E%3Cpath d='m13 13 4 4'/%3E%3C/svg%3E") no-repeat 11px center;font:inherit;font-size:13.5px;color:var(--encre)}
+.fj-page input[data-fj-recherche]:focus{outline:none;border-color:var(--vert);box-shadow:0 0 0 3px color-mix(in srgb,var(--vert) 18%,transparent)}
+
+/* Graphique des statistiques */
+.fj-graph-cadre{position:relative;--fj-g-n:#D94613;--fj-g-n1:#4F79B5}
+body.theme-dark .fj-graph-cadre{--fj-g-n:#E35A22;--fj-g-n1:#5B8AD0}
+.fj-graph{width:100%;height:auto;display:block}
+.fj-graph .fj-graph-n{fill:var(--fj-g-n)}
+.fj-graph .fj-graph-n1{fill:var(--fj-g-n1)}
+.fj-graph-grille{stroke:var(--reglure);stroke-width:1}
+.fj-graph-base{stroke:var(--reglure-f);stroke-width:1}
+.fj-graph-axe{fill:var(--encre-55);font:11px var(--sans)}
+.fj-graph-zone{fill:transparent;cursor:pointer}
+.fj-graph-zone.survol{fill:color-mix(in srgb,var(--encre) 5%,transparent)}
+.fj-graph-legende{display:flex;gap:16px;font-size:12.5px;color:var(--encre-55);margin-bottom:4px}
+.fj-graph-legende i,.fj-graph-bulle i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.fj-graph-legende i.fj-graph-n,.fj-graph-bulle i.fj-graph-n{background:var(--fj-g-n)}
+.fj-graph-legende i.fj-graph-n1,.fj-graph-bulle i.fj-graph-n1{background:var(--fj-g-n1)}
+.fj-graph-bulle{position:absolute;pointer-events:none;background:var(--surface,#fff);border:1px solid var(--reglure);border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.14);padding:8px 10px;font-size:12.5px;line-height:1.55;color:var(--encre);white-space:nowrap}
+
+/* Mode sombre : fonds de lignes moins saturés */
+body.theme-dark .fj-table tr.fj-ligne{background:color-mix(in srgb,var(--fj-c) 12%,transparent)}
+body.theme-dark .fj-table .fj-actions{background:var(--surface)}
+
+@media (max-width:760px){
+  .fj-frise{gap:6px}
+  .fj-jalon{width:30px;height:30px;font-size:12px}
+  .fj-etape-choix{width:22px;height:22px;line-height:22px}
+  .fj-graph-axe{font-size:13px}
+}

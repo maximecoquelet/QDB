@@ -26,7 +26,7 @@ const FJ = {
   colonneEtat: false,   /* script v55.4 passé : état, avancement, débours */
   colonneClient: false, /* script v55.9 passé : rattachement à la fiche client */
   reglagesEnBase: false,
-  reglages: { types: null, modeles: null, familles: null, etapes: null },  /* null = valeurs par défaut */
+  reglages: { types: null, modeles: null, familles: null, etapes: null, options: null },  /* null = valeurs par défaut */
   exercice: null,      /* année de début de l'exercice affiché (juin → mai) */
   derniereSync: 0
 };
@@ -364,12 +364,12 @@ function fjAFacturer(){
 function fjVueAFacturer(){
   const auj=new Date(today()+"T00:00:00");
   const jours=iso=>iso?Math.round((auj-new Date(String(iso).slice(0,10)+"T00:00:00"))/86400000):null;
-  const lignes=fjAFacturer().filter(fjFiltreTexte).sort((a,b)=>String(a.date_fin_formalite||"9").localeCompare(String(b.date_fin_formalite||"9")));
+  const lignes=fjTrier(fjAFacturer().filter(fjFiltreTexte),"afacturer",FJ_TRI_VALEURS,(a,b)=>String(a.date_fin_formalite||"9").localeCompare(String(b.date_fin_formalite||"9")));
   const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
   return `<div class="card"><div class="bd">
       ${fjBarreRecherche(`<div class="hint" style="margin:0">Formalités terminées, pas encore passées en facturation — de la plus ancienne à la plus récente.</div>`)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Dossier</th><th>Fin form.</th><th>Depuis</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Mois de rattachement prévu">Factur.</th><th class="fj-actions"></th></tr></thead>
+        <thead><tr>${fjTh("afacturer","dossier","Dossier")}${fjTh("afacturer","fin","Fin form.")}<th>Depuis</th>${fjTh("afacturer","type","Type")}${fjTh("afacturer","mission","Mission")}${fjTh("afacturer","honoraires","Honoraires HT","r")}${fjTh("afacturer","facturation","Factur.","","Mois de rattachement prévu")}<th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>{const j=jours(l.date_fin_formalite);return `<tr>
           <td>${fjNomClient(l)}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${fjDt(l.date_fin_formalite)}</td>
@@ -410,20 +410,61 @@ function fjBarreRecherche(extra=""){
 const fjFiltreTexte = l => { const q=normClient(FJ.recherche||""); return !q||normClient(`${l.dossier} ${l.type_operation||""} ${l.mission||""} ${l.commentaires||""}`).includes(q); };
 const fjDt = v => { if(!v) return `<span class="dim">—</span>`; const [a,m,j]=String(v).slice(0,10).split("-"); return `<span title="${esc(dateFR(v))}">${j}/${m}/${String(a).slice(2)}</span>`; };
 
+/* =====================================================================
+   v56 — ERGONOMIE
+   - tri au clic sur les en-têtes (chaque onglet garde le sien) ;
+   - frise d'avancement : les 4 dates en 4 points cliquables ;
+   - étape choisie d'un clic sur la pastille de couleur ;
+   - « Terminée » : fin de formalité à la date du jour ;
+   - indicateurs repliables, mémorisés sur ce poste.
+   ===================================================================== */
+const FJ_FRISE = [["date_projet","P","Envoi du projet d'acte"],["date_signature","S","Signature des actes"],["date_depot_gtc","D","Dépôt GTC"],["date_fin_formalite","F","Fin de formalité"]];
+FJ.tris = FJ.tris || {};
+
+/* Valeur de tri d'une colonne ; null pour les vides, toujours placés en fin. */
+const FJ_TRI_VALEURS = {
+  dossier:l=>normClient(l.dossier||""), type:l=>normClient(l.type_operation||""), mission:l=>normClient(l.mission||""),
+  honoraires:l=>l.honoraires==null?null:+l.honoraires, facturation:l=>l.mois_facturation||null,
+  fin:l=>l.date_fin_formalite||null, avancement:l=>{ const E=fjEtapes(); return E.findIndex(e=>e.id===fjEtapeDe(l).id); },
+  debours:l=>fjTotalDebours(l)||null
+};
+function fjTrier(liste, onglet, getters, defaut){
+  const t=FJ.tris[onglet];
+  if(!t||!getters[t.k]) return liste.sort(defaut);
+  const g=getters[t.k], sens=t.dir==="desc"?-1:1;
+  return liste.sort((a,b)=>{ const x=g(a), y=g(b);
+    if(x==null&&y==null) return 0; if(x==null) return 1; if(y==null) return -1;
+    return (typeof x==="number"&&typeof y==="number"?x-y:String(x).localeCompare(String(y),"fr"))*sens; });
+}
+function fjTh(onglet,k,lib,cls="",titre=""){
+  const t=FJ.tris[onglet], actif=t&&t.k===k;
+  return `<th class="${cls} fj-triable${actif?" fj-tri-actif":""}" data-fj-trier="${onglet}:${k}" ${titre?`title="${esc(titre)}"`:""} aria-sort="${actif?(t.dir==="desc"?"descending":"ascending"):"none"}">${lib}<span class="fj-fleche">${actif?(t.dir==="desc"?"▼":"▲"):"↕"}</span></th>`;
+}
+
+function fjFrise(l){
+  return `<span class="fj-frise">${FJ_FRISE.map(([k,lettre,lib])=>{ const v=l[k]; return `<button type="button" class="fj-jalon${v?" fait":""}" data-fj-jalon="${esc(l.id)}:${k}" title="${esc(lib)} : ${v?dateFR(v):"non renseignée"} — cliquer pour ${v?"modifier":"saisir"}">${lettre}</button>`; }).join("")}</span>`;
+}
+
+function fjIndicateurs(html){
+  let ouvert=true; try{ ouvert=localStorage.getItem("serre:fj:indicateurs")!=="0"; }catch(_){}
+  return `<details class="fj-indicateurs" data-fj-indicateurs ${ouvert?"open":""}><summary>Indicateurs</summary>${html}</details>`;
+}
+
 function fjVueEncours(){
   const s=fjSynthese(), aSuivre=fjDossiersASuivre(), E=fjEtapes();
   const filtre=E.some(e=>e.id===FJ.filtreEtape)?FJ.filtreEtape:"";
-  let lignes=fjEncours().filter(fjFiltreTexte).filter(l=>!filtre||fjEtapeDe(l).id===filtre);
   const rang=l=>E.findIndex(e=>e.id===fjEtapeDe(l).id);
-  lignes.sort((a,b)=>FJ.tri==="dossier"?String(a.dossier).localeCompare(String(b.dossier),"fr"):(rang(b)-rang(a))||String(b.date_fin_formalite||b.date_depot_gtc||b.date_signature||b.date_projet||b.created_at||"").localeCompare(String(a.date_fin_formalite||a.date_depot_gtc||a.date_signature||a.date_projet||a.created_at||"")));
+  const lignes=fjTrier(fjEncours().filter(fjFiltreTexte).filter(l=>!filtre||fjEtapeDe(l).id===filtre),"encours",FJ_TRI_VALEURS,
+    (a,b)=>(rang(b)-rang(a))||String(b.date_fin_formalite||b.date_depot_gtc||b.date_signature||b.date_projet||b.created_at||"").localeCompare(String(a.date_fin_formalite||a.date_depot_gtc||a.date_signature||a.date_projet||a.created_at||"")));
   const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
-  const filtres=`<div class="vues-barre" style="margin:0"><button class="vue-onglet ${!filtre?"on":""}" data-fj-etape="">Toutes <span class="vue-compte">${s.encours.n}</span></button>${E.map(e=>`<button class="vue-onglet ${filtre===e.id?"on":""}" data-fj-etape="${esc(e.id)}"><span class="fj-point" style="--fj-c:${fjCouleurSure(e.couleur)}"></span>${esc(e.libelle)} <span class="vue-compte">${s.parEtape[e.id]||0}</span></button>`).join("")}</div>`;
-  return `<div class="kpi-grid">
+  const reperes=!!FJ.reglages.options?.reperes;
+  const filtres=`<div class="vues-barre" style="margin:0"><button class="vue-onglet ${!filtre?"on":""}" data-fj-etape="">Toutes <span class="vue-compte">${s.encours.n}</span></button>${E.map((e,i)=>`<button class="vue-onglet ${filtre===e.id?"on":""}" data-fj-etape="${esc(e.id)}"><span class="fj-point" style="--fj-c:${fjCouleurSure(e.couleur)}">${reperes?i+1:""}</span>${esc(e.libelle)} <span class="vue-compte">${s.parEtape[e.id]||0}</span></button>`).join("")}</div>`;
+  return `${fjIndicateurs(`<div class="kpi-grid">
       ${kpi("En cours",eur0(s.encours.m),`${s.encours.n} dossier(s)`)}
       ${kpi("Facturé ce mois",eur0(s.moisCourant),esc(fjMoisLong(today())))}
       ${kpi(`Exercice ${fjLibelleExercice(fjExerciceDe(today()))}`,eur0(s.exercice),s.exerciceN1MemePeriode?`N-1 à date : ${eur0(s.exerciceN1MemePeriode)} (${s.exercice>=s.exerciceN1MemePeriode?"+":""}${Math.round((s.exercice-s.exerciceN1MemePeriode)/s.exerciceN1MemePeriode*100)} %)`:"Juin à mai")}
       ${kpi("Nouveaux dossiers de l'outil",String(aSuivre.length),"Missions juridiques exceptionnelles reclassées, non suivies")}
-    </div>
+    </div>`)}
     ${aSuivre.length?`<details class="card" style="margin-bottom:14px" ${aSuivre.length<=5?"open":""}><summary class="hd" style="cursor:pointer">Missions juridiques exceptionnelles reclassées dans l'outil, non encore suivies <span class="tag ocre">${aSuivre.length}</span></summary><div class="bd">
       <table class="synthese-table"><thead><tr><th>Client</th><th>Devis</th><th>Classé le</th><th class="r">Honoraires HT</th><th></th></tr></thead><tbody>
       ${aSuivre.slice(0,30).map(x=>`<tr><td>${esc(x.d.client?.raison||"Dossier")}</td><td>${esc(x.d.ref||intituleDevis(x.d))}</td><td>${fjDt(String(x.date||"").slice(0,10))}</td><td class="r num">${eur(x.montant)}</td>
@@ -432,16 +473,17 @@ function fjVueEncours(){
     <div class="card"><div class="bd">
       ${fjBarreRecherche(filtres)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Dossier</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Envoi du projet d'acte">Projet</th><th title="Signature des actes">Signature</th><th>Dépôt GTC</th><th>Fin form.</th><th title="Mois de rattachement">Factur.</th><th class="fj-actions"></th></tr></thead>
-        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l);return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}" title="${esc(e.libelle)}">
-          <td>${fjNomClient(l)}${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+        <thead><tr>${fjTh("encours","dossier","Dossier")}${fjTh("encours","type","Type")}${fjTh("encours","mission","Mission")}${fjTh("encours","honoraires","Honoraires HT","r")}${fjTh("encours","avancement","Avancement","","P : projet · S : signature · D : dépôt · F : fin de formalité")}${fjTh("encours","facturation","Factur.","","Mois de rattachement")}<th class="fj-actions"></th></tr></thead>
+        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l), n=E.findIndex(x=>x.id===e.id)+1;return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}">
+          <td><div class="fj-nom"><button type="button" class="fj-etape-choix" data-fj-etape-choix="${esc(l.id)}" title="${esc(e.libelle)}${l.avancement?" (choisie à la main)":""} — changer l'étape">${reperes?n:""}</button>${fjNomClient(l)}${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}</div>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
-          <td>${fjDt(l.date_projet)}</td><td>${fjDt(l.date_signature)}</td><td>${fjDt(l.date_depot_gtc)}</td><td>${fjDt(l.date_fin_formalite)}</td>
+          <td>${fjFrise(l)}</td>
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
-          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-facturer="${esc(l.id)}" title="Passer en facturation">Facturer</button><button class="btn sm" data-fj-modifier="${esc(l.id)}" title="Modifier la ligne">Modifier</button></div></td></tr>`;}).join("")||`<tr><td colspan="10"><div class="empty-state"><b>Aucun dossier en cours</b></div></td></tr>`}</tbody>
-        <tfoot><tr class="total"><td colspan="3"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="5"></td><td class="fj-actions"></td></tr></tfoot>
+          <td class="fj-actions"><div class="fj-boutons">${l.date_fin_formalite?"":`<button class="btn sm" data-fj-terminee="${esc(l.id)}" title="Fin de formalité à la date du jour">Terminée</button>`}<button class="btn sm p" data-fj-facturer="${esc(l.id)}" title="Passer en facturation">Facturer</button><button class="btn sm" data-fj-modifier="${esc(l.id)}" title="Modifier la ligne">Modifier</button></div></td></tr>`;}).join("")||`<tr><td colspan="7"><div class="empty-state"><b>Aucun dossier en cours</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="3"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="2"></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
+      <div class="hint" style="margin-top:8px">Cliquez sur un point P · S · D · F pour saisir la date, sur le carré de couleur pour changer l'étape, sur un en-tête pour trier.</div>
     </div></div>`;
 }
 
@@ -469,14 +511,15 @@ function fjDevisEnvoyes(){
 
 function fjVueDevisEnvoyes(){
   const q=normClient(FJ.recherche||"");
-  const liste=fjDevisEnvoyes().filter(x=>!q||normClient(`${x.d.client?.raison||""} ${x.d.ref||""} ${intituleDevis(x.d)}`).includes(q));
+  const liste=fjTrier(fjDevisEnvoyes().filter(x=>!q||normClient(`${x.d.client?.raison||""} ${x.d.ref||""} ${intituleDevis(x.d)}`).includes(q)),"envoyes",
+    {envoi:x=>x.envoi||null, client:x=>normClient(x.d.client?.raison||""), ref:x=>x.d.ref||null, honoraires:x=>x.ht},(a,b)=>String(a.envoi||"9").localeCompare(String(b.envoi||"9")));
   const auj=new Date(today()+"T00:00:00");
   const jours=iso=>iso?Math.round((auj-new Date(iso+"T00:00:00"))/86400000):null;
   const total=liste.reduce((t,x)=>t+x.ht,0);
   return `<div class="card"><div class="bd">
       ${fjBarreRecherche(`<div class="hint" style="margin:0">Devis « Mission juridique exceptionnelle » envoyés, en attente d'acceptation. L'acceptation se coche dans le dossier.</div>`)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Envoyé le</th><th>Attente</th><th>Client</th><th>Devis</th><th>Intitulé</th><th class="r">Honoraires HT</th><th>Envoi</th><th class="fj-actions"></th></tr></thead>
+        <thead><tr>${fjTh("envoyes","envoi","Envoyé le")}<th>Attente</th>${fjTh("envoyes","client","Client")}${fjTh("envoyes","ref","Devis")}<th>Intitulé</th>${fjTh("envoyes","honoraires","Honoraires HT","r")}<th>Envoi</th><th class="fj-actions"></th></tr></thead>
         <tbody>${liste.map(x=>{const j=jours(x.envoi);return `<tr>
           <td>${fjDt(x.envoi)}</td>
           <td>${j==null?`<span class="dim">—</span>`:`<span class="tag ${j>30?"rouge":j>15?"ocre":"gris"}">${j} j</span>`}</td>
@@ -522,14 +565,15 @@ function fjVueFactures(){
   const dispo=fjExercicesDisponibles();
   const n=FJ.exerciceFactures==="tous"?"tous":(dispo.includes(FJ.exerciceFactures)?FJ.exerciceFactures:dispo[0]);
   let lignes=fjFactures().filter(fjFiltreTexte).filter(l=>n==="tous"||(l.mois_facturation&&fjExerciceDe(l.mois_facturation)===n));
-  lignes.sort((a,b)=>FJ.tri==="dossier"?String(a.dossier).localeCompare(String(b.dossier),"fr"):String(b.mois_facturation||"").localeCompare(String(a.mois_facturation||""))||String(a.dossier).localeCompare(String(b.dossier),"fr"));
+  const dbx=Object.fromEntries(FJ_DEBOURS.map(([k])=>[k,l=>l[k]==null||l[k]===""?null:+l[k]]));
+  fjTrier(lignes,"factures",{...FJ_TRI_VALEURS,...dbx},(a,b)=>String(b.mois_facturation||"").localeCompare(String(a.mois_facturation||""))||String(a.dossier).localeCompare(String(b.dossier),"fr"));
   const tot=k=>lignes.reduce((t,l)=>t+(+l[k]||0),0);
   const sel=`<label class="row" style="gap:8px">Exercice <select data-fj-exercice-factures style="width:auto"><option value="tous" ${n==="tous"?"selected":""}>Tous</option>${dispo.map(x=>`<option value="${x}" ${x===n?"selected":""}>${fjLibelleExercice(x)}</option>`).join("")}</select></label>`;
   const m=v=>v!=null&&v!==""?eur(v):`<span class="dim">—</span>`;
   return `<div class="card"><div class="bd">
       ${fjBarreRecherche(sel)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Facturation</th><th>Dossier</th><th>Type</th><th>Mission</th><th class="r fj-th-court">Honoraires HT</th>${FJ_DEBOURS.map(([k,lib])=>`<th class="r fj-th-court" title="${esc(lib)}">${esc(FJ_DEBOURS_COURTS[k])}</th>`).join("")}<th class="r fj-th-court">Total débours</th><th class="fj-actions"></th></tr></thead>
+        <thead><tr>${fjTh("factures","facturation","Facturation")}${fjTh("factures","dossier","Dossier")}${fjTh("factures","type","Type")}${fjTh("factures","mission","Mission")}${fjTh("factures","honoraires","Honoraires HT","r fj-th-court")}${FJ_DEBOURS.map(([k,lib])=>fjTh("factures",k,esc(FJ_DEBOURS_COURTS[k]),"r fj-th-court",lib)).join("")}${fjTh("factures","debours","Total débours","r fj-th-court")}<th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>`<tr>
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
           <td>${fjNomClient(l)}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
@@ -539,6 +583,31 @@ function fjVueFactures(){
         <tfoot><tr class="total"><td colspan="4"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(tot("honoraires"))}</b></td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${eur(tot(k))}</td>`).join("")}<td class="r num"><b>${eur(lignes.reduce((t,l)=>t+fjTotalDebours(l),0))}</b></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
     </div></div>`;
+}
+
+/* v56 — Graphique : honoraires facturés par mois, exercice et N-1 côte à
+   côte. Deux séries, couleurs validées (contraste et daltonisme) en mode
+   clair et sombre ; le tableau sous le graphique en est la version texte. */
+function fjGraphiqueMois(d, n){
+  const W=720, H=230, g=44, dr=12, haut=14, bas=34, pw=W-g-dr, ph=H-haut-bas;
+  const max=Math.max(1,...d.parMois.map(x=>Math.max(x.t,x.p)));
+  const pas=[1,2,2.5,5,10].map(k=>k*Math.pow(10,Math.floor(Math.log10(max/4)))).find(v=>max/v<=5)||max/4;
+  const top=Math.ceil(max/pas)*pas, y=v=>haut+ph-(v/top)*ph, slot=pw/12, bw=Math.max(6,Math.min(18,(slot-10)/2));
+  const barre=(x,v,cls)=>{ if(!v) return ""; const y0=y(v), h=haut+ph-y0, r=Math.min(4,h,bw/2);
+    return `<path class="${cls}" d="M${x},${haut+ph}V${y0+r}Q${x},${y0} ${x+r},${y0}H${x+bw-r}Q${x+bw},${y0} ${x+bw},${y0+r}V${haut+ph}Z"/>`; };
+  const k=v=>v>=1000?`${Math.round(v/100)/10} k€`.replace(".",","):`${Math.round(v)} €`;
+  let svg=`<svg class="fj-graph" viewBox="0 0 ${W} ${H}" role="img" aria-label="Honoraires facturés par mois, exercice ${fjLibelleExercice(n)} et exercice précédent">`;
+  for(let v=0; v<=top+1e-9; v+=pas){ svg+=`<line class="fj-graph-grille" x1="${g}" x2="${W-dr}" y1="${y(v)}" y2="${y(v)}"/><text class="fj-graph-axe" x="${g-6}" y="${y(v)+4}" text-anchor="end">${k(v)}</text>`; }
+  d.parMois.forEach((x,i)=>{
+    const cx=g+slot*i+slot/2, mois=new Date(x.m+"-01T00:00:00").toLocaleDateString("fr-FR",{month:"short"}).replace(".","");
+    svg+=barre(cx-bw-1,x.p,"fj-graph-n1")+barre(cx+1,x.t,"fj-graph-n");
+    svg+=`<text class="fj-graph-axe" x="${cx}" y="${H-bas+16}" text-anchor="middle">${esc(mois)}</text>`;
+    svg+=`<rect class="fj-graph-zone" x="${g+slot*i}" y="${haut}" width="${slot}" height="${ph}" data-fj-graph="${i}"/>`;
+  });
+  svg+=`<line class="fj-graph-base" x1="${g}" x2="${W-dr}" y1="${haut+ph}" y2="${haut+ph}"/></svg>`;
+  return `<div class="fj-graph-cadre" data-fj-graph-donnees='${esc(JSON.stringify(d.parMois.map(x=>({m:x.m,t:x.t,p:x.p}))))}'>
+    <div class="fj-graph-legende"><span><i class="fj-graph-n"></i>Exercice ${esc(fjLibelleExercice(n))}</span><span><i class="fj-graph-n1"></i>Exercice ${esc(fjLibelleExercice(n-1))}</span></div>
+    ${svg}<div class="fj-graph-bulle" hidden></div></div>`;
 }
 
 function fjTableauDeBordHTML(){
@@ -554,7 +623,7 @@ function fjTableauDeBordHTML(){
   return `<div class="card"><div class="hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Exercice
       <select data-fj-exercice style="width:auto;min-width:150px">${dispo.map(x=>`<option value="${x}" ${x===n?"selected":""}>${fjLibelleExercice(x)}</option>`).join("")}</select>
       <span class="dim" style="font-weight:400">${d.nb} ligne(s) facturée(s) · ${eur0(d.total)} HT</span></div>
-    <div class="bd"><div class="grid g2" style="align-items:start;gap:18px">
+    <div class="bd">${fjGraphiqueMois(d,n)}<div class="grid g2" style="align-items:start;gap:18px;margin-top:14px">
       <div style="overflow-x:auto"><table class="synthese-table fj-table"><thead><tr><th>Mois</th><th class="r">Honoraires</th><th class="r">Dont JLT</th><th class="r">%</th><th class="r">N-1</th><th class="r">Écart</th></tr></thead><tbody>
         ${d.parMois.map(x=>`<tr><td>${esc(fjMoisLong(x.m))}</td><td class="r num">${x.t?eur0(x.t):`<span class="dim">—</span>`}</td><td class="r num">${x.j?eur0(x.j):`<span class="dim">—</span>`}</td><td class="r num">${x.t?pct(x.j,x.t):"—"}</td><td class="r num">${x.p?eur0(x.p):`<span class="dim">—</span>`}</td><td class="r num">${x.m>today().slice(0,7)?"":(x.t||x.p?ecart(x.t,x.p):"")}</td></tr>`).join("")}
       </tbody><tfoot><tr class="total"><td><b>Total</b></td><td class="r num"><b>${eur0(d.total)}</b></td><td class="r num">${eur0(totJ)}</td><td class="r num">${pct(totJ,d.total)}</td><td class="r num">${eur0(totP)}</td><td class="r num">${ecart(d.total,totP)}</td></tr></tfoot></table>
@@ -580,7 +649,7 @@ function fjFormulaire(ligne, titre){
     const l={etat:"encours",...ligne};
     const types=fjTypes(), E=fjEtapes();
     const champ=(k,lib,type="text",extra="")=>`<label class="f"><span>${lib}</span><input type="${type}" data-fjf="${k}" value="${esc(type==="month"?String(l[k]||"").slice(0,7):(l[k]??""))}" ${extra}></label>`;
-    const m=document.createElement("div"); m.className="modal modal-confirm";
+    const m=document.createElement("div"); m.className="modal modal-confirm fj-modal";
     m.innerHTML=`<div class="box" style="max-width:820px"><div class="modal-titlebar"><h2>${esc(titre)}</h2><button class="modal-x" type="button">×</button></div>
       <div class="modal-content"><div class="grid g2">
         ${champ("dossier","Dossier (client)","text","required")}
@@ -629,13 +698,15 @@ async function fjEditer(ligne,titre){
     await fjEditer({...copie,mission:"",honoraires:"",date_depot_gtc:"",date_fin_formalite:"",mois_facturation:"",etat:"encours",avancement:"",...Object.fromEntries(FJ_DEBOURS.map(([k])=>[k,""]))},"Nouvelle ligne pour le même dossier");
     return;
   }
+  const avant=r.id?FJ.lignes.find(x=>x.id===r.id):null;
+  if(avant){ await fjEnregistrerAnnulable(avant,r,`Ligne enregistrée — ${r.dossier}`); return; }
   if(await fjEnregistrer(r)){ toast("Ligne enregistrée."); render(); }
 }
 
 /* Passage en facturation : mois de rattachement + débours, puis la ligne
    rejoint l'onglet « Facturés ». Sert aussi à modifier les débours. */
 function fjSaisieFacturation(l, passage){
-  const m=document.createElement("div"); m.className="modal modal-confirm";
+  const m=document.createElement("div"); m.className="modal modal-confirm fj-modal";
   const v=k=>l[k]??"";
   m.innerHTML=`<div class="box" style="max-width:560px"><div class="modal-titlebar"><h2>${passage?"Passer en facturation":"Débours"} — ${esc(l.dossier)}</h2><button class="modal-x" type="button">×</button></div>
     <div class="modal-content"><div class="grid g2">
@@ -650,7 +721,7 @@ function fjSaisieFacturation(l, passage){
     const x={...l}; m.querySelectorAll("[data-fjs]").forEach(el=>{ x[el.dataset.fjs]=el.value; });
     if(!x.mois_facturation){ toast("Indiquez le mois de rattachement.",true); return; }
     x.etat="facture";
-    if(await fjEnregistrer(x)){ fermer(); toast(passage?"Ligne passée en facturation.":"Débours enregistrés."); render(); }
+    if(await fjEnregistrerAnnulable(l,x,passage?`${l.dossier} passé en facturation (${fjMois(x.mois_facturation.length===7?x.mois_facturation+"-01":x.mois_facturation)})`:`Débours enregistrés — ${l.dossier}`)) fermer();
   };
   document.body.appendChild(m);
 }
@@ -659,7 +730,7 @@ function fjSaisieFacturation(l, passage){
 function fjGererListes(){
   const modeles=(st.modeles||[]).slice().sort((a,b)=>String(a.titre).localeCompare(String(b.titre),"fr"));
   let etapes=fjEtapes().map(e=>({...e}));
-  const m=document.createElement("div"); m.className="modal modal-confirm";
+  const m=document.createElement("div"); m.className="modal modal-confirm fj-modal";
   const ligneEtape=(e,i)=>`<div class="row" style="gap:8px;margin:5px 0;flex-wrap:nowrap" data-fj-etape-ligne="${i}">
       <input type="color" data-fje="couleur" value="${fjCouleurSure(e.couleur)}" style="width:44px;padding:2px" title="Couleur">
       <input type="text" data-fje="libelle" value="${esc(e.libelle)}" placeholder="Libellé" style="flex:1">
@@ -674,6 +745,7 @@ function fjGererListes(){
   };
   m.innerHTML=`<div class="box" style="max-width:820px"><div class="modal-titlebar"><h2>Paramètres de la facturation juridique</h2><button class="modal-x" type="button">×</button></div>
     <div class="modal-content">
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input type="checkbox" data-fj-opt-reperes ${FJ.reglages.options?.reperes?"checked":""}> Afficher le numéro de l'étape dans le carré de couleur (repère pour les personnes qui distinguent mal les couleurs)</label>
       <div class="f"><span><b>Avancement — étapes et couleurs</b></span>
         <div class="hint">Dans l'ordre du parcours. Une étape liée à une date est atteinte dès que cette date est saisie ; l'avancement peut aussi être choisi à la main sur chaque ligne.</div>
         <div data-fj-etapes></div><button class="btn sm" data-fj-etape-ajout style="margin-top:4px">Ajouter une étape</button></div>
@@ -704,7 +776,8 @@ function fjGererListes(){
     const inconnus=Object.values(familles).flat().filter(t=>!types.includes(t));
     if(inconnus.length){ toast("Types inconnus dans les familles : "+inconnus.join(", "),true); return; }
     const mods=[...m.querySelectorAll("[data-fj-modele]")].filter(x=>x.checked).map(x=>x.dataset.fjModele);
-    if(await fjEnregistrerReglage("etapes",etapes) && await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("familles",familles) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Paramètres enregistrés."); render(); }
+    const options={...(FJ.reglages.options||{}),reperes:!!m.querySelector("[data-fj-opt-reperes]").checked};
+    if(await fjEnregistrerReglage("options",options) && await fjEnregistrerReglage("etapes",etapes) && await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("familles",familles) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Paramètres enregistrés."); render(); }
   };
 }
 
@@ -873,13 +946,95 @@ function fjExporter(){
   setTimeout(()=>URL.revokeObjectURL(a.href),1200);
 }
 
+/* =====================================================================
+   v56 — INTERACTIONS
+   ===================================================================== */
+/* « Annuler » pendant 8 secondes après une action. */
+let FJ_ANNULER_MINUTEUR=null;
+function fjAnnulable(message, annuler){
+  document.querySelectorAll(".fj-annuler").forEach(x=>x.remove()); clearTimeout(FJ_ANNULER_MINUTEUR);
+  const t=document.createElement("div"); t.className="fj-annuler"; t.setAttribute("role","status");
+  t.innerHTML=`<span>${esc(message)}</span><button type="button">Annuler</button>`;
+  t.querySelector("button").onclick=async()=>{ t.remove(); clearTimeout(FJ_ANNULER_MINUTEUR); try{ await annuler(); toast("Action annulée."); }catch(e){ toast("Annulation impossible : "+(e?.message||e),true); } render(); };
+  document.body.appendChild(t);
+  FJ_ANNULER_MINUTEUR=setTimeout(()=>t.remove(),8000);
+}
+/* Enregistre une ligne modifiée et propose de revenir à l'état précédent. */
+async function fjEnregistrerAnnulable(avant, apres, message){
+  const copie={...avant};
+  if(!await fjEnregistrer(apres)) return false;
+  render(); fjAnnulable(message, async()=>{ if(!await fjEnregistrer(copie)) throw new Error("enregistrement refusé"); });
+  return true;
+}
+
+/* Petite fenêtre accrochée à un élément (date d'un jalon, choix d'étape). */
+function fjPopover(ancre, html, brancher){
+  document.querySelectorAll(".fj-pop").forEach(x=>x.remove());
+  const p=document.createElement("div"); p.className="fj-pop"; p.innerHTML=html; document.body.appendChild(p);
+  const r=ancre.getBoundingClientRect(), w=p.offsetWidth, h=p.offsetHeight;
+  let left=Math.min(Math.max(8,r.left+window.scrollX), window.scrollX+document.documentElement.clientWidth-w-8);
+  let top=r.bottom+window.scrollY+6; if(r.bottom+h+12>window.innerHeight) top=r.top+window.scrollY-h-6;
+  p.style.left=left+"px"; p.style.top=top+"px";
+  const fermer=()=>{ p.remove(); document.removeEventListener("mousedown",dehors,true); document.removeEventListener("keydown",clavier,true); };
+  const dehors=e=>{ if(!p.contains(e.target)&&e.target!==ancre) fermer(); };
+  const clavier=e=>{ if(e.key==="Escape"){ e.stopPropagation(); fermer(); ancre.focus?.(); } };
+  setTimeout(()=>{ document.addEventListener("mousedown",dehors,true); document.addEventListener("keydown",clavier,true); },0);
+  brancher(p,fermer);
+  p.querySelector("input,button")?.focus();
+}
+
+function fjOuvrirJalon(btn){
+  const [id,k]=btn.dataset.fjJalon.split(":"); const l=FJ.lignes.find(x=>x.id===id); if(!l) return;
+  const lib=(FJ_FRISE.find(x=>x[0]===k)||[])[2]||"Date";
+  fjPopover(btn,`<div class="fj-pop-titre">${esc(lib)} — ${esc(l.dossier)}</div>
+    <input type="date" data-pop-date value="${esc(l[k]||"")}">
+    <div class="fj-pop-actions"><button type="button" class="btn sm" data-pop-auj>Aujourd'hui</button>${l[k]?`<button type="button" class="btn sm" data-pop-eff>Effacer</button>`:""}<button type="button" class="btn sm p" data-pop-ok>Enregistrer</button></div>`,
+  (p,fermer)=>{
+    const valider=async v=>{ fermer(); if((l[k]||"")===(v||"")) return; await fjEnregistrerAnnulable(l,{...l,[k]:v||""},`${lib} : ${v?dateFR(v):"effacée"} — ${l.dossier}`); };
+    const inp=p.querySelector("[data-pop-date]");
+    inp.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); valider(inp.value); } };
+    p.querySelector("[data-pop-ok]").onclick=()=>valider(inp.value);
+    p.querySelector("[data-pop-auj]").onclick=()=>valider(today());
+    const eff=p.querySelector("[data-pop-eff]"); if(eff) eff.onclick=()=>valider("");
+  });
+}
+
+function fjOuvrirEtape(btn){
+  const l=FJ.lignes.find(x=>x.id===btn.dataset.fjEtapeChoix); if(!l) return;
+  const E=fjEtapes(), auto=fjEtapeDe({...l,avancement:""});
+  fjPopover(btn,`<div class="fj-pop-titre">Étape — ${esc(l.dossier)}</div>
+    <button type="button" class="fj-pop-ligne${!l.avancement?" on":""}" data-pop-etape=""><span class="fj-point" style="--fj-c:${fjCouleurSure(auto.couleur)}"></span>Automatique, selon les dates (${esc(auto.libelle)})</button>
+    ${E.map(e=>`<button type="button" class="fj-pop-ligne${l.avancement===e.id?" on":""}" data-pop-etape="${esc(e.id)}"><span class="fj-point" style="--fj-c:${fjCouleurSure(e.couleur)}"></span>${esc(e.libelle)}</button>`).join("")}`,
+  (p,fermer)=>{
+    p.querySelectorAll("[data-pop-etape]").forEach(b=>b.onclick=async()=>{
+      fermer(); const v=b.dataset.popEtape; if((l.avancement||"")===v) return;
+      const lib=v?(E.find(e=>e.id===v)?.libelle||""):"automatique";
+      await fjEnregistrerAnnulable(l,{...l,avancement:v},`Étape : ${lib} — ${l.dossier}`);
+    });
+  });
+}
+
+/* Clavier dans les fenêtres : Échap ferme, Entrée valide (hors zone de texte). */
+if(!window.__fjClavier){
+  window.__fjClavier=true;
+  document.addEventListener("keydown",e=>{
+    if(document.querySelector(".fj-pop")) return;
+    const modales=[...document.querySelectorAll(".modal")]; const m=modales[modales.length-1]; if(!m) return;
+    if(e.key==="Escape"){ const x=m.querySelector(".modal-x,[data-no],[data-x]"); if(x){ e.preventDefault(); x.click(); } return; }
+    if(e.key==="Enter"&&m.classList.contains("fj-modal")){
+      const t=e.target; if(t&&(t.tagName==="TEXTAREA"||t.tagName==="BUTTON"||t.tagName==="SELECT")) return;
+      const ok=m.querySelector("[data-yes]"); if(ok&&!ok.disabled){ e.preventDefault(); ok.click(); }
+    }
+  });
+}
+
 /* ----------------------------------------------------- liaisons écran */
 function fjLier(){
   if(st.view!=="juridique"||!FJ.acces) return;
   /* Sur téléphone, chaque ligne devient une fiche : chaque cellule reçoit
      le libellé de sa colonne, et les cellules vides sont masquées. */
   document.querySelectorAll(".fj-table").forEach(t=>{
-    const titres=[...t.querySelectorAll("thead th")].map(th=>th.textContent.trim());
+    const titres=[...t.querySelectorAll("thead th")].map(th=>{ const c=th.cloneNode(true); c.querySelectorAll(".fj-fleche").forEach(x=>x.remove()); return c.textContent.trim(); });
     t.querySelectorAll("tbody tr").forEach(tr=>[...tr.cells].forEach(td=>{
       if(td.colSpan>1) return;
       td.dataset.l=titres[td.cellIndex]||"";
@@ -888,6 +1043,26 @@ function fjLier(){
   });
   const un=(sel,f)=>document.querySelectorAll(sel).forEach(f);
   un("[data-fj-onglet]",b=>b.onclick=()=>{ FJ.onglet=b.dataset.fjOnglet; render(); });
+  un("[data-fj-trier]",th=>th.onclick=()=>{ const [o,k]=th.dataset.fjTrier.split(":"); const t=FJ.tris[o]; FJ.tris[o]=t&&t.k===k?{k,dir:t.dir==="asc"?"desc":"asc"}:{k,dir:"asc"}; render(); });
+  un("[data-fj-jalon]",b=>b.onclick=e=>{ e.stopPropagation(); fjOuvrirJalon(b); });
+  un("[data-fj-etape-choix]",b=>b.onclick=e=>{ e.stopPropagation(); fjOuvrirEtape(b); });
+  un("[data-fj-terminee]",b=>b.onclick=async()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjTerminee); if(!l) return;
+    await fjEnregistrerAnnulable(l,{...l,date_fin_formalite:today(),avancement:""},`Formalité terminée le ${dateFR(today())} — ${l.dossier}`); });
+  un("[data-fj-graph-donnees]",cadre=>{
+    const data=JSON.parse(cadre.dataset.fjGraphDonnees||"[]"), bulle=cadre.querySelector(".fj-graph-bulle");
+    cadre.querySelectorAll("[data-fj-graph]").forEach(z=>{
+      const montrer=()=>{ const x=data[+z.dataset.fjGraph]; if(!x) return;
+        const ec=x.p?`${x.t>=x.p?"+":""}${Math.round((x.t-x.p)/x.p*100)} %`:"—";
+        bulle.innerHTML=`<b>${esc(fjMoisLong(x.m))}</b><div><i class="fj-graph-n"></i>Exercice : ${eur0(x.t)}</div><div><i class="fj-graph-n1"></i>N-1 : ${eur0(x.p)}</div><div class="dim">Écart : ${ec}</div>`;
+        bulle.hidden=false; const rc=cadre.getBoundingClientRect(), rz=z.getBoundingClientRect();
+        let gx=rz.left-rc.left+rz.width/2-bulle.offsetWidth/2; gx=Math.max(0,Math.min(gx,rc.width-bulle.offsetWidth));
+        bulle.style.left=gx+"px"; bulle.style.top="34px"; z.classList.add("survol"); };
+      const cacher=()=>{ bulle.hidden=true; z.classList.remove("survol"); };
+      z.addEventListener("mouseenter",montrer); z.addEventListener("mouseleave",cacher);
+      z.addEventListener("click",montrer);
+    });
+  });
+  un("[data-fj-indicateurs]",d=>d.ontoggle=()=>{ try{ localStorage.setItem("serre:fj:indicateurs",d.open?"1":"0"); }catch(_){} });
   un("[data-fj-client]",b=>b.onclick=e=>{ e.stopPropagation(); st.clientViewId=b.dataset.fjClient; st.view="client1"; render(); });
   un("[data-fj-etape]",b=>b.onclick=()=>{ FJ.filtreEtape=b.dataset.fjEtape; render(); });
   un("[data-fj-exercice-factures]",x=>x.onchange=()=>{ FJ.exerciceFactures=x.value==="tous"?"tous":+x.value; render(); });
@@ -908,12 +1083,19 @@ function fjLier(){
   un("[data-fj-valider]",b=>b.onclick=async()=>{
     const d=st.devis.find(x=>x.id===b.dataset.fjValider); if(!d) return;
     if(!await askConfirm("Devis validé",`Le devis ${d.ref||""} de ${d.client?.raison||"ce client"} sera marqué « signé ou validé » à la date du jour. Les documents du dossier seront figés, comme depuis le dossier lui-même.`,{confirmLabel:"Valider le devis"})) return;
+    const avant=JSON.parse(JSON.stringify(d));
     await fjSurDevis(d.id, async()=>{ await ACTS.manualSignStep({dataset:{step:"quoteSigned"},checked:true}); });
+    if(d.manualSign?.quoteSigned) fjAnnulable(`Devis ${d.ref||""} validé — ${d.client?.raison||""}`, async()=>{
+      await fjSurDevis(d.id, async(x)=>{ for(const k of Object.keys(x)) if(k!=="rev") delete x[k]; Object.assign(x,{...avant,rev:x.rev}); logAudit(x,"Validation du devis annulée",""); await saveDev(); });
+    });
   });
   un("[data-fj-sans-suite]",b=>b.onclick=async()=>{
     const d=st.devis.find(x=>x.id===b.dataset.fjSansSuite); if(!d) return;
     if(!await askConfirm("Devis sans suite",`Le devis ${d.ref||""} de ${d.client?.raison||"ce client"} sera classé « sans suite ». Il quitte la liste des devis envoyés et les relances ; il reste consultable et peut être réactivé.`,{confirmLabel:"Classer sans suite"})) return;
-    await fjSurDevis(d.id, async(x)=>{ x.sansSuite={date:today(),par:actorName()}; x.statut="sans_suite"; logAudit(x,"Devis classé sans suite",""); await saveDev(); toast("Devis classé sans suite."); });
+    await fjSurDevis(d.id, async(x)=>{ x.sansSuite={date:today(),par:actorName()}; x.statut="sans_suite"; logAudit(x,"Devis classé sans suite",""); await saveDev(); });
+    fjAnnulable(`Devis ${d.ref||""} classé sans suite — ${d.client?.raison||""}`, async()=>{
+      await fjSurDevis(d.id, async(x)=>{ delete x.sansSuite; x.statut=workflowStatut(x); logAudit(x,"Devis réactivé (sans suite annulé)",""); await saveDev(); });
+    });
   });
   un("[data-fj-reactiver]",b=>b.onclick=async()=>{
     const d=st.devis.find(x=>x.id===b.dataset.fjReactiver); if(!d) return;
