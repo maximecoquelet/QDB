@@ -1108,3 +1108,9 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
 /* v55 — facturation juridique */
 .fj-table td,.fj-table th{vertical-align:middle}
 .fj-table .tag,.fj-table td:nth-child(n+4):nth-child(-n+9){white-space:nowrap}
+/* v55.4 — avancement paramétrable : la couleur vient de --fj-c */
+.fj-pastille{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;color:var(--fj-c);background:color-mix(in srgb,var(--fj-c) 14%,transparent);border:1px solid color-mix(in srgb,var(--fj-c) 45%,transparent)}
+.fj-pastille::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--fj-c)}
+.fj-point{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--fj-c);margin-right:2px}
+.fj-table tr.fj-ligne td:first-child{box-shadow:inset 4px 0 0 var(--fj-c)}
+.fj-table tr.fj-ligne{background:color-mix(in srgb,var(--fj-c) 6%,transparent)}

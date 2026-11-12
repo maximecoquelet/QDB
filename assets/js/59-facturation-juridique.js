@@ -17,12 +17,15 @@ const FJ = {
   acces: false,        /* réponse de la base : ce compte est-il autorisé ? */
   lignes: [],
   erreur: "",
-  filtre: "tous",      /* tous | encours | afacturer | facture */
+  onglet: "encours",   /* encours | factures | stats */
+  filtreEtape: "",     /* étape d'avancement filtrée dans « Dossiers en cours » */
+  exerciceFactures: null,
   recherche: "",
   tri: "facturation",
   colonneEcarte: false, /* script v55.1 passé : les retraits sont conservés en base */
+  colonneEtat: false,   /* script v55.4 passé : état, avancement, débours */
   reglagesEnBase: false,
-  reglages: { types: null, modeles: null, familles: null },  /* null = valeurs par défaut */
+  reglages: { types: null, modeles: null, familles: null, etapes: null },  /* null = valeurs par défaut */
   exercice: null,      /* année de début de l'exercice affiché (juin → mai) */
   derniereSync: 0
 };
@@ -30,11 +33,12 @@ const FJ = {
 /* Liste fermée par défaut (types relevés dans le fichier du cabinet) ;
    remplacée par la liste enregistrée dans « Gérer les listes ». */
 const FJ_TYPES = [
-  "Constitution Uni", "Constitution SCI", "Constitution par apport",
-  "Cession d'actions / parts sociales", "Modifications multiples",
-  "Opérations capitalistiques", "Etablissement supplémentaire",
-  "Conventions (tréso / MF / C.C / obligations / bail)", "TUP / Fusion",
-  "AGOA", "2777 et dividendes"
+  "2777 et dividendes", "AGOA", "Conventions (tréso / MF / C.C / obligations / bail)", "CAMP",
+  "Cession d'actions / parts sociales", "Constitution Uni", "Constitution Pluri", "Constitution SCI",
+  "Constitution par apport", "Dépôt marque", "Dissolution / Liquidation", "Evaluation",
+  "Etablissement supplémentaire", "JLT", "Modif date de clôture", "Modification d'objet social",
+  "Modification Présidence", "Modifications multiples", "Opérations capitalistiques",
+  "Transformation en SAS", "Transformation en SARL", "Transfert de siège", "TUP / Fusion"
 ];
 
 const FJ_MASQUES_STORAGE = "serre:fj:dossiers-ignores";
@@ -48,6 +52,7 @@ async function fjInitialiser(){
     if(error || data!==true) return;   /* fonction absente ou compte non autorisé : rien ne s'affiche */
     FJ.acces=true;
     try{ const {error:e2}=await SB.from("facturation_juridique").select("ecarte").limit(1); FJ.colonneEcarte=!e2; }catch(_){ FJ.colonneEcarte=false; }
+    try{ const {error:e3}=await SB.from("facturation_juridique").select("etat,avancement,debours_jal").limit(1); FJ.colonneEtat=!e3; }catch(_){ FJ.colonneEtat=false; }
     await fjChargerReglages();
     await fjCharger();
     const n=await fjSynchroniser();
@@ -138,7 +143,13 @@ function fjLigneVersBase(l){
     date_depot_gtc:d(l.date_depot_gtc), date_fin_formalite:d(l.date_fin_formalite),
     mois_facturation:mois(l.mois_facturation), commentaires:t(l.commentaires),
     devis_id:t(l.devis_id),
-    ...(l.ecarte===true?{ecarte:true}:{})
+    ...(l.ecarte===true?{ecarte:true}:{}),
+    ...(FJ.colonneEtat?{
+      etat:l.etat==="facture"?"facture":"encours",
+      avancement:t(l.avancement),
+      debours_greffe_tva:num(l.debours_greffe_tva), debours_greffe_hors_tva:num(l.debours_greffe_hors_tva),
+      debours_jal:num(l.debours_jal), debours_enregistrement:num(l.debours_enregistrement)
+    }:{})
   };
 }
 
@@ -175,13 +186,6 @@ async function fjSupprimer(id){
 }
 
 /* ------------------------------------------------------------ calculs */
-function fjStatut(l){
-  if(l.mois_facturation) return "facture";
-  if(l.date_fin_formalite) return "afacturer";
-  return "encours";
-}
-const FJ_STATUTS = { encours:["En cours","gris"], afacturer:["À facturer","ocre"], facture:["Facturé","vert"] };
-
 function fjMontant(v){
   if(v===null||v===undefined||v==="") return NaN;
   if(typeof v==="number") return v;
@@ -223,50 +227,84 @@ function fjExercicesDisponibles(){
   return [...set].sort((a,b)=>b-a);
 }
 
+/* --------------------------------------------------------------- vue */
+/* =====================================================================
+   v55.4 — TROIS ONGLETS : dossiers en cours · facturés · statistiques
+   - L'état (en cours / facturé) se décide à la main : « Passer en
+     facturation » ouvre la saisie du mois de rattachement et des débours.
+   - Les statistiques ne comptent que les lignes facturées.
+   - Code couleur d'avancement entièrement paramétrable (Gérer les listes).
+   ===================================================================== */
+const fjEtatsDe = l => l.etat==="facture" ? "facture" : "encours";
+const fjEncours = () => fjVisibles().filter(l=>fjEtatsDe(l)==="encours");
+const fjFactures = () => fjVisibles().filter(l=>fjEtatsDe(l)==="facture");
+const FJ_DEBOURS = [
+  ["debours_greffe_tva","Frais de greffe soumis à TVA"],
+  ["debours_greffe_hors_tva","Frais de greffe non soumis à TVA"],
+  ["debours_jal","JAL"],
+  ["debours_enregistrement","Enregistrement"]
+];
+const fjTotalDebours = l => FJ_DEBOURS.reduce((a,[k])=>a+(+l[k]||0),0);
+const FJ_CHAMPS_DATE = [["","— Aucune (à choisir à la main) —"],["date_projet","Envoi du projet d'acte"],["date_signature","Signature des actes"],["date_depot_gtc","Dépôt GTC"],["date_fin_formalite","Fin de formalité"]];
+const FJ_ETAPES_DEFAUT = [
+  {id:"a_demarrer", libelle:"À démarrer",          couleur:"#9AA3A0", date:""},
+  {id:"projet",     libelle:"Projet envoyé",       couleur:"#3B82C4", date:"date_projet"},
+  {id:"signe",      libelle:"Actes signés",        couleur:"#7C5CC4", date:"date_signature"},
+  {id:"depose",     libelle:"Déposé au greffe",    couleur:"#D98A1F", date:"date_depot_gtc"},
+  {id:"termine",    libelle:"Formalité terminée",  couleur:"#2E9D62", date:"date_fin_formalite"}
+];
+const fjEtapes = () => Array.isArray(FJ.reglages.etapes)&&FJ.reglages.etapes.length ? FJ.reglages.etapes : FJ_ETAPES_DEFAUT;
+/* Étape d'une ligne : choisie à la main si elle l'a été, sinon la plus
+   avancée dont la date associée est renseignée, sinon la première. */
+function fjEtapeDe(l){
+  const E=fjEtapes();
+  if(l.avancement){ const e=E.find(x=>x.id===l.avancement); if(e) return e; }
+  let r=E[0];
+  for(const e of E) if(e.date && l[e.date]) r=e;
+  return r;
+}
+const fjCouleurSure = c => /^#[0-9a-fA-F]{6}$/.test(String(c||"")) ? c : "#9AA3A0";
+const fjPastille = e => `<span class="fj-pastille" style="--fj-c:${fjCouleurSure(e?.couleur)}">${esc(e?.libelle||"")}</span>`;
+
 function fjSynthese(){
   const moisCourant=today().slice(0,7), ex=fjExerciceDe(today());
-  const s={encours:{n:0,m:0},afacturer:{n:0,m:0},moisCourant:0,exercice:0,exerciceN1MemePeriode:0,parMois:{}};
-  /* N-1 à période comparable : mêmes mois écoulés de l'exercice précédent. */
+  const s={encours:{n:0,m:0},moisCourant:0,exercice:0,exerciceN1MemePeriode:0,parEtape:{}};
   const moisEcoules=new Set(fjMoisExercice(ex).filter(m=>m<=moisCourant).map(m=>`${+m.slice(0,4)-1}${m.slice(4)}`));
-  for(const l of fjVisibles()){
-    const h=+l.honoraires||0, st_=fjStatut(l);
-    if(st_==="encours"){ s.encours.n++; s.encours.m+=h; }
-    if(st_==="afacturer"){ s.afacturer.n++; s.afacturer.m+=h; }
-    if(l.mois_facturation){
-      const m=String(l.mois_facturation).slice(0,7);
-      s.parMois[m]=(s.parMois[m]||0)+h;
-      if(m===moisCourant) s.moisCourant+=h;
-      if(fjExerciceDe(m)===ex) s.exercice+=h;
-      if(moisEcoules.has(m)) s.exerciceN1MemePeriode+=h;
-    }
+  for(const l of fjEncours()){ s.encours.n++; s.encours.m+=+l.honoraires||0; const e=fjEtapeDe(l); s.parEtape[e.id]=(s.parEtape[e.id]||0)+1; }
+  for(const l of fjFactures()){
+    if(!l.mois_facturation) continue;
+    const h=+l.honoraires||0, m=String(l.mois_facturation).slice(0,7);
+    if(m===moisCourant) s.moisCourant+=h;
+    if(fjExerciceDe(m)===ex) s.exercice+=h;
+    if(moisEcoules.has(m)) s.exerciceN1MemePeriode+=h;
   }
   return s;
 }
 
 function fjTableauExercice(n){
-  const mois=fjMoisExercice(n), lignes=fjVisibles().filter(l=>l.mois_facturation&&fjExerciceDe(l.mois_facturation)===n);
-  const precedentes=fjVisibles().filter(l=>l.mois_facturation&&fjExerciceDe(l.mois_facturation)===n-1);
+  const mois=fjMoisExercice(n), base=fjFactures().filter(l=>l.mois_facturation);
+  const lignes=base.filter(l=>fjExerciceDe(l.mois_facturation)===n), precedentes=base.filter(l=>fjExerciceDe(l.mois_facturation)===n-1);
   const parMois=mois.map(m=>{
     const du=lignes.filter(l=>String(l.mois_facturation).slice(0,7)===m), n1=precedentes.filter(l=>String(l.mois_facturation).slice(0,7)===`${+m.slice(0,4)-1}${m.slice(4)}`);
     const t=du.reduce((a,l)=>a+(+l.honoraires||0),0), j=du.filter(fjEstJlt).reduce((a,l)=>a+(+l.honoraires||0),0), p=n1.reduce((a,l)=>a+(+l.honoraires||0),0);
     return {m,t,j,p};
   });
   const total=parMois.reduce((a,x)=>a+x.t,0);
-  const types={}, familles={};
+  const types={}, familles={}, debours=Object.fromEntries(FJ_DEBOURS.map(([k])=>[k,0]));
   for(const l of lignes){
     const t=l.type_operation||"Sans type", h=+l.honoraires||0;
     types[t]=types[t]||{h:0,n:0}; types[t].h+=h; types[t].n++;
     const f=fjFamilleDe(l.type_operation); familles[f]=(familles[f]||0)+h;
+    for(const [k] of FJ_DEBOURS) debours[k]+=+l[k]||0;
   }
-  return {parMois,total,types,familles,nb:lignes.length};
+  return {parMois,total,types,familles,debours,nb:lignes.length};
 }
 
-/* Dossiers juridiques signés dans l'outil de devis, pas encore suivis ici. */
+/* Missions juridiques exceptionnelles reclassées dans l'outil, pas encore suivies. */
 function fjMasques(){ try{ return new Set(JSON.parse(localStorage.getItem(FJ_MASQUES_STORAGE)||"[]")); }catch(_){ return new Set(); } }
 function fjMasquer(id){ try{ const s=fjMasques(); s.add(id); localStorage.setItem(FJ_MASQUES_STORAGE,JSON.stringify([...s])); }catch(_){} }
 
 function fjDossiersASuivre(){
-  /* Un dossier déjà lié à une ligne (même retirée ou scindée) n'est plus proposé. */
   const suivis=new Set(FJ.lignes.map(l=>l.devis_id).filter(Boolean)), masques=fjMasques();
   const out=[];
   for(const d of (st.devis||[])){
@@ -281,79 +319,100 @@ function fjDossiersASuivre(){
   return out.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 }
 
-/* Ligne proposée pour un dossier reclassé. Les dates (projet, signature des
-   actes, dépôt, fin de formalité) et le type restent à saisir : l'outil de
-   devis ne les connaît pas. */
+/* Ligne créée pour un dossier reclassé : elle arrive EN COURS. Dates, type
+   et débours restent à saisir : l'outil de devis ne les connaît pas. */
 function fjDepuisDossier(d){
   const m=modOf(d), t=totaux(d,m), cats=honorairesParCategorie(d,m).cats||{};
   const libelles=[...new Set(Object.values(cats).flatMap(c=>(c.lignes||[])).filter(x=>(+x.montant||0)>0).map(x=>String(x.label||"").trim()).filter(Boolean))];
-  const titre=intituleDevis(d);
-  const libre=titre&&titre!=="Devis"?titre:"";
-  return {
-    dossier:d.client?.raison||"", type_operation:"",
-    mission:(libre||libelles.join(" + ")).slice(0,300),
-    honoraires:Math.round((+t.ht||0)*100)/100,
-    devis_id:d.id
-  };
+  const titre=intituleDevis(d), libre=titre&&titre!=="Devis"?titre:"";
+  return { dossier:d.client?.raison||"", type_operation:"", mission:(libre||libelles.join(" + ")).slice(0,300),
+           honoraires:Math.round((+t.ht||0)*100)/100, devis_id:d.id, etat:"encours" };
 }
 
-/* --------------------------------------------------------------- vue */
 VIEWS.juridique = () => {
   if(!FJ.acces) return `<div class="top"><h1>Facturation juridique</h1></div><div class="wrap"><div class="notice">Accès non autorisé.</div></div>`;
-  const s=fjSynthese(), aSuivre=fjDossiersASuivre();
-  const q=normClient(FJ.recherche||"");
-  let lignes=fjVisibles().filter(l=>FJ.filtre==="tous"||fjStatut(l)===FJ.filtre);
-  if(q) lignes=lignes.filter(l=>normClient(`${l.dossier} ${l.type_operation||""} ${l.mission||""} ${l.commentaires||""}`).includes(q));
-  const ordre={encours:0,afacturer:1,facture:2};
-  lignes.sort((a,b)=>FJ.tri==="dossier"
-    ? String(a.dossier).localeCompare(String(b.dossier),"fr")
-    : (ordre[fjStatut(a)]-ordre[fjStatut(b)]) || String(b.mois_facturation||b.date_fin_formalite||b.date_signature||"").localeCompare(String(a.mois_facturation||a.date_fin_formalite||a.date_signature||"")));
-  const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
-  const compte=f=>f==="tous"?fjVisibles().length:fjVisibles().filter(l=>fjStatut(l)===f).length;
-  const onglet=(f,l)=>`<button class="vue-onglet ${FJ.filtre===f?"on":""}" data-fj-filtre="${f}">${l} <span class="vue-compte">${compte(f)}</span></button>`;
-  const dt=v=>v?dateFR(v):`<span class="dim">—</span>`;
-
-  return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${FJ.colonneEcarte&&FJ.reglagesEnBase?"":` · <b>relancer le script v55 dans Supabase (mise à jour)</b>`}</span><span class="spacer"></span>
-    <button class="btn" data-fj-listes>Gérer les listes</button>
-    <button class="btn" data-fj-import>Importer un fichier</button>
+  const onglet=["encours","factures","stats"].includes(FJ.onglet)?FJ.onglet:"encours";
+  const nb={encours:fjEncours().length,factures:fjFactures().length};
+  const tab=(k,l,n)=>`<button class="vue-onglet ${onglet===k?"on":""}" data-fj-onglet="${k}">${l}${n!=null?` <span class="vue-compte">${n}</span>`:""}</button>`;
+  const manque=!(FJ.colonneEcarte&&FJ.reglagesEnBase&&FJ.colonneEtat);
+  return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${manque?` · <b>relancer le script v55 dans Supabase (mise à jour)</b>`:""}</span><span class="spacer"></span>
+    <button class="btn" data-fj-listes>Paramètres</button>
+    <button class="btn" data-fj-import>Importer</button>
     <button class="btn" data-fj-export>Exporter en CSV</button>
     <button class="btn p" data-fj-nouveau>Nouvelle ligne</button>
     <input type="file" data-fj-fichier accept=".csv,.txt,.xlsx,.xls" hidden></div>
   <div class="wrap">
     ${FJ.erreur?`<div class="notice rouge" style="margin-bottom:12px">${esc(FJ.erreur)}</div>`:""}
-    <div class="kpi-grid">
-      ${kpi("En cours",eur0(s.encours.m),`${s.encours.n} mission(s), formalité non terminée`)}
-      ${kpi("À facturer",eur0(s.afacturer.m),`${s.afacturer.n} mission(s), formalité terminée`)}
-      ${kpi("Facturé ce mois",eur0(s.moisCourant),esc(fjMoisLong(today())))}
-      ${kpi(`Exercice ${fjLibelleExercice(fjExerciceDe(today()))}`,eur0(s.exercice),s.exerciceN1MemePeriode?`N-1 à date : ${eur0(s.exerciceN1MemePeriode)} (${s.exercice>=s.exerciceN1MemePeriode?"+":""}${Math.round((s.exercice-s.exerciceN1MemePeriode)/s.exerciceN1MemePeriode*100)} %)`:"Juin à mai")}
-    </div>
-    ${aSuivre.length?`<details class="card" style="margin-bottom:14px" ${aSuivre.length<=5?"open":""}><summary class="hd" style="cursor:pointer">Missions juridiques exceptionnelles reclassées dans l'outil, non encore suivies ici <span class="tag ocre">${aSuivre.length}</span></summary><div class="bd">
-      <table class="synthese-table"><thead><tr><th>Client</th><th>Devis</th><th>Classé le</th><th class="r">Honoraires HT</th><th></th></tr></thead><tbody>
-      ${aSuivre.slice(0,30).map(x=>`<tr><td>${esc(x.d.client?.raison||"Dossier")}</td><td>${esc(x.d.ref||intituleDevis(x.d))}</td><td>${dt(String(x.date||"").slice(0,10))}</td><td class="r num">${eur(x.montant)}</td>
-        <td class="r"><button class="btn sm p" data-fj-suivre="${esc(x.d.id)}">Ajouter au suivi</button> <button class="btn sm" data-fj-ignorer="${esc(x.d.id)}" title="Ne plus proposer ce dossier">Ignorer</button></td></tr>`).join("")}
-      </tbody></table>${aSuivre.length>30?`<div class="hint">… et ${aSuivre.length-30} autre(s).</div>`:""}</div></details>`:""}
-    <div class="card"><div class="bd">
-      <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <div class="vues-barre" style="margin:0">${onglet("tous","Toutes")}${onglet("encours","En cours")}${onglet("afacturer","À facturer")}${onglet("facture","Facturées")}</div>
-        <div class="row" style="gap:8px"><input type="search" data-fj-recherche placeholder="Rechercher un dossier, une mission…" value="${esc(FJ.recherche)}" style="min-width:240px">
-        <select data-fj-tri><option value="facturation" ${FJ.tri!=="dossier"?"selected":""}>Tri : statut puis date</option><option value="dossier" ${FJ.tri==="dossier"?"selected":""}>Tri : dossier</option></select></div>
-      </div>
-      <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Dossier</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Envoi du projet d'acte">Projet</th><th title="Signature des actes">Signature</th><th>Dépôt GTC</th><th>Fin formalité</th><th title="Mois de rattachement de la facturation">Facturation</th><th>Statut</th><th></th></tr></thead>
-        <tbody>${lignes.map(l=>{const [lib,coul]=FJ_STATUTS[fjStatut(l)];return `<tr>
-          <td><b>${esc(l.dossier)}</b>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
-          <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge" title="Type absent de la liste fermée">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
-          <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
-          <td>${dt(l.date_projet)}</td><td>${dt(l.date_signature)}</td><td>${dt(l.date_depot_gtc)}</td><td>${dt(l.date_fin_formalite)}</td>
-          <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
-          <td><span class="tag ${coul}">${lib}</span></td>
-          <td class="r" style="white-space:nowrap">${fjStatut(l)==="afacturer"?`<button class="btn sm p" data-fj-facturer="${esc(l.id)}" title="Facturé ce mois-ci">Facturé</button> `:""}<button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></td></tr>`;}).join("")||`<tr><td colspan="11"><div class="empty-state"><b>Aucune ligne</b><small>Importez votre fichier ou ajoutez une ligne.</small></div></td></tr>`}</tbody>
-        <tfoot><tr class="total"><td colspan="3"><b>Total (${lignes.length} ligne(s) affichée(s))</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="7"></td></tr></tfoot>
-      </table></div>
-    </div></div>
-    ${fjTableauDeBordHTML()}
+    <div class="vues-barre" style="margin-bottom:14px">${tab("encours","Dossiers en cours",nb.encours)}${tab("factures","Facturés",nb.factures)}${tab("stats","Statistiques")}</div>
+    ${onglet==="stats"?fjTableauDeBordHTML():onglet==="factures"?fjVueFactures():fjVueEncours()}
   </div>`;
 };
+
+function fjBarreRecherche(extra=""){
+  return `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">${extra}
+    <input type="search" data-fj-recherche placeholder="Rechercher un dossier, une mission…" value="${esc(FJ.recherche)}" style="min-width:260px;width:auto"></div>`;
+}
+const fjFiltreTexte = l => { const q=normClient(FJ.recherche||""); return !q||normClient(`${l.dossier} ${l.type_operation||""} ${l.mission||""} ${l.commentaires||""}`).includes(q); };
+const fjDt = v => v?dateFR(v):`<span class="dim">—</span>`;
+
+function fjVueEncours(){
+  const s=fjSynthese(), aSuivre=fjDossiersASuivre(), E=fjEtapes();
+  const filtre=E.some(e=>e.id===FJ.filtreEtape)?FJ.filtreEtape:"";
+  let lignes=fjEncours().filter(fjFiltreTexte).filter(l=>!filtre||fjEtapeDe(l).id===filtre);
+  const rang=l=>E.findIndex(e=>e.id===fjEtapeDe(l).id);
+  lignes.sort((a,b)=>FJ.tri==="dossier"?String(a.dossier).localeCompare(String(b.dossier),"fr"):(rang(b)-rang(a))||String(b.date_fin_formalite||b.date_depot_gtc||b.date_signature||b.date_projet||b.created_at||"").localeCompare(String(a.date_fin_formalite||a.date_depot_gtc||a.date_signature||a.date_projet||a.created_at||"")));
+  const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
+  const filtres=`<div class="vues-barre" style="margin:0"><button class="vue-onglet ${!filtre?"on":""}" data-fj-etape="">Toutes <span class="vue-compte">${s.encours.n}</span></button>${E.map(e=>`<button class="vue-onglet ${filtre===e.id?"on":""}" data-fj-etape="${esc(e.id)}"><span class="fj-point" style="--fj-c:${fjCouleurSure(e.couleur)}"></span>${esc(e.libelle)} <span class="vue-compte">${s.parEtape[e.id]||0}</span></button>`).join("")}</div>`;
+  return `<div class="kpi-grid">
+      ${kpi("En cours",eur0(s.encours.m),`${s.encours.n} dossier(s)`)}
+      ${kpi("Facturé ce mois",eur0(s.moisCourant),esc(fjMoisLong(today())))}
+      ${kpi(`Exercice ${fjLibelleExercice(fjExerciceDe(today()))}`,eur0(s.exercice),s.exerciceN1MemePeriode?`N-1 à date : ${eur0(s.exerciceN1MemePeriode)} (${s.exercice>=s.exerciceN1MemePeriode?"+":""}${Math.round((s.exercice-s.exerciceN1MemePeriode)/s.exerciceN1MemePeriode*100)} %)`:"Juin à mai")}
+      ${kpi("Nouveaux dossiers de l'outil",String(aSuivre.length),"Missions juridiques exceptionnelles reclassées, non suivies")}
+    </div>
+    ${aSuivre.length?`<details class="card" style="margin-bottom:14px" ${aSuivre.length<=5?"open":""}><summary class="hd" style="cursor:pointer">Missions juridiques exceptionnelles reclassées dans l'outil, non encore suivies <span class="tag ocre">${aSuivre.length}</span></summary><div class="bd">
+      <table class="synthese-table"><thead><tr><th>Client</th><th>Devis</th><th>Classé le</th><th class="r">Honoraires HT</th><th></th></tr></thead><tbody>
+      ${aSuivre.slice(0,30).map(x=>`<tr><td>${esc(x.d.client?.raison||"Dossier")}</td><td>${esc(x.d.ref||intituleDevis(x.d))}</td><td>${fjDt(String(x.date||"").slice(0,10))}</td><td class="r num">${eur(x.montant)}</td>
+        <td class="r"><button class="btn sm p" data-fj-suivre="${esc(x.d.id)}">Ajouter au suivi</button> <button class="btn sm" data-fj-ignorer="${esc(x.d.id)}" title="Ne plus proposer ce dossier">Ignorer</button></td></tr>`).join("")}
+      </tbody></table></div></details>`:""}
+    <div class="card"><div class="bd">
+      ${fjBarreRecherche(filtres)}
+      <div style="overflow-x:auto"><table class="synthese-table fj-table">
+        <thead><tr><th>Dossier</th><th>Avancement</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th>Projet</th><th>Signature</th><th>Dépôt GTC</th><th>Fin formalité</th><th title="Mois de rattachement">Facturation</th><th></th></tr></thead>
+        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l);return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}">
+          <td><b>${esc(l.dossier)}</b>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+          <td>${fjPastille(e)}</td>
+          <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
+          <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
+          <td>${fjDt(l.date_projet)}</td><td>${fjDt(l.date_signature)}</td><td>${fjDt(l.date_depot_gtc)}</td><td>${fjDt(l.date_fin_formalite)}</td>
+          <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
+          <td class="r" style="white-space:nowrap"><button class="btn sm p" data-fj-facturer="${esc(l.id)}">Passer en facturation</button> <button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></td></tr>`;}).join("")||`<tr><td colspan="11"><div class="empty-state"><b>Aucun dossier en cours</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="4"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="6"></td></tr></tfoot>
+      </table></div>
+    </div></div>`;
+}
+
+function fjVueFactures(){
+  const dispo=fjExercicesDisponibles();
+  const n=FJ.exerciceFactures==="tous"?"tous":(dispo.includes(FJ.exerciceFactures)?FJ.exerciceFactures:dispo[0]);
+  let lignes=fjFactures().filter(fjFiltreTexte).filter(l=>n==="tous"||(l.mois_facturation&&fjExerciceDe(l.mois_facturation)===n));
+  lignes.sort((a,b)=>FJ.tri==="dossier"?String(a.dossier).localeCompare(String(b.dossier),"fr"):String(b.mois_facturation||"").localeCompare(String(a.mois_facturation||""))||String(a.dossier).localeCompare(String(b.dossier),"fr"));
+  const tot=k=>lignes.reduce((t,l)=>t+(+l[k]||0),0);
+  const sel=`<label class="row" style="gap:8px">Exercice <select data-fj-exercice-factures style="width:auto"><option value="tous" ${n==="tous"?"selected":""}>Tous</option>${dispo.map(x=>`<option value="${x}" ${x===n?"selected":""}>${fjLibelleExercice(x)}</option>`).join("")}</select></label>`;
+  const m=v=>v!=null&&v!==""?eur(v):`<span class="dim">—</span>`;
+  return `<div class="card"><div class="bd">
+      ${fjBarreRecherche(sel)}
+      <div style="overflow-x:auto"><table class="synthese-table fj-table">
+        <thead><tr><th>Facturation</th><th>Dossier</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th>${FJ_DEBOURS.map(([k,lib])=>`<th class="r">${esc(lib)}</th>`).join("")}<th class="r">Total débours</th><th></th></tr></thead>
+        <tbody>${lignes.map(l=>`<tr>
+          <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
+          <td><b>${esc(l.dossier)}</b>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+          <td>${esc(l.type_operation||"")}</td><td>${esc(l.mission||"")}</td>
+          <td class="r num">${m(l.honoraires)}</td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${m(l[k])}</td>`).join("")}<td class="r num">${fjTotalDebours(l)?eur(fjTotalDebours(l)):`<span class="dim">—</span>`}</td>
+          <td class="r" style="white-space:nowrap"><button class="btn sm" data-fj-debours="${esc(l.id)}">Débours</button> <button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></td></tr>`).join("")||`<tr><td colspan="${7+FJ_DEBOURS.length}"><div class="empty-state"><b>Aucune ligne facturée</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="4"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(tot("honoraires"))}</b></td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${eur(tot(k))}</td>`).join("")}<td class="r num"><b>${eur(lignes.reduce((t,l)=>t+fjTotalDebours(l),0))}</b></td><td></td></tr></tfoot>
+      </table></div>
+    </div></div>`;
+}
 
 function fjTableauDeBordHTML(){
   const dispo=fjExercicesDisponibles();
@@ -364,18 +423,22 @@ function fjTableauDeBordHTML(){
   const types=Object.entries(d.types).sort((a,b)=>b[1].h-a[1].h);
   const fams=Object.keys(fjFamilles()).map(f=>[f,d.familles[f]||0]);
   for(const f of ["Non classé","Sans type"]) if(d.familles[f]) fams.push([f,d.familles[f]]);
-  return `<div class="card" style="margin-top:14px"><div class="hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Tableau de bord — exercice
+  const totDeb=Object.values(d.debours).reduce((a,b)=>a+b,0);
+  return `<div class="card"><div class="hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Exercice
       <select data-fj-exercice style="width:auto;min-width:150px">${dispo.map(x=>`<option value="${x}" ${x===n?"selected":""}>${fjLibelleExercice(x)}</option>`).join("")}</select>
-      <span class="dim" style="font-weight:400">${d.nb} ligne(s) · ${eur0(d.total)} HT</span></div>
+      <span class="dim" style="font-weight:400">${d.nb} ligne(s) facturée(s) · ${eur0(d.total)} HT</span></div>
     <div class="bd"><div class="grid g2" style="align-items:start;gap:18px">
       <div style="overflow-x:auto"><table class="synthese-table fj-table"><thead><tr><th>Mois</th><th class="r">Honoraires</th><th class="r">Dont JLT</th><th class="r">%</th><th class="r">N-1</th><th class="r">Écart</th></tr></thead><tbody>
         ${d.parMois.map(x=>`<tr><td>${esc(fjMoisLong(x.m))}</td><td class="r num">${x.t?eur0(x.t):`<span class="dim">—</span>`}</td><td class="r num">${x.j?eur0(x.j):`<span class="dim">—</span>`}</td><td class="r num">${x.t?pct(x.j,x.t):"—"}</td><td class="r num">${x.p?eur0(x.p):`<span class="dim">—</span>`}</td><td class="r num">${x.m>today().slice(0,7)?"":(x.t||x.p?ecart(x.t,x.p):"")}</td></tr>`).join("")}
       </tbody><tfoot><tr class="total"><td><b>Total</b></td><td class="r num"><b>${eur0(d.total)}</b></td><td class="r num">${eur0(totJ)}</td><td class="r num">${pct(totJ,d.total)}</td><td class="r num">${eur0(totP)}</td><td class="r num">${ecart(d.total,totP)}</td></tr></tfoot></table>
-      <div class="hint">N-1 : même mois de l'exercice précédent. Écart sur l'année complète ; pour l'exercice en cours, voir l'indicateur « N-1 à date » en haut.</div></div>
+      <div class="hint">Lignes facturées uniquement, au mois de rattachement. N-1 : même mois de l'exercice précédent.</div></div>
       <div>
         <table class="synthese-table"><thead><tr><th>Famille</th><th class="r">Honoraires</th><th class="r">%</th></tr></thead><tbody>
           ${fams.map(([f,h])=>`<tr><td>${esc(f)}</td><td class="r num">${h?eur0(h):`<span class="dim">—</span>`}</td><td class="r num">${pct(h,d.total)}</td></tr>`).join("")}
         </tbody></table>
+        <table class="synthese-table" style="margin-top:14px"><thead><tr><th>Débours de l'exercice</th><th class="r">Montant</th></tr></thead><tbody>
+          ${FJ_DEBOURS.map(([k,lib])=>`<tr><td>${esc(lib)}</td><td class="r num">${d.debours[k]?eur(d.debours[k]):`<span class="dim">—</span>`}</td></tr>`).join("")}
+        </tbody><tfoot><tr class="total"><td><b>Total</b></td><td class="r num"><b>${eur(totDeb)}</b></td></tr></tfoot></table>
         <details style="margin-top:12px"><summary style="cursor:pointer"><b>Par type d'opération</b> (${types.length})</summary>
         <table class="synthese-table"><thead><tr><th>Type</th><th class="r">Honoraires</th><th class="r">Nombre</th><th class="r">%</th></tr></thead><tbody>
           ${types.map(([t,v])=>`<tr><td>${esc(t)}</td><td class="r num">${eur0(v.h)}</td><td class="r num">${v.n}</td><td class="r num">${pct(v.h,d.total)}</td></tr>`).join("")}
@@ -387,31 +450,38 @@ function fjTableauDeBordHTML(){
 /* ------------------------------------------------------- formulaire */
 function fjFormulaire(ligne, titre){
   return new Promise(resolve=>{
-    const l={...ligne};
-    const types=fjTypes();
+    const l={etat:"encours",...ligne};
+    const types=fjTypes(), E=fjEtapes();
     const champ=(k,lib,type="text",extra="")=>`<label class="f"><span>${lib}</span><input type="${type}" data-fjf="${k}" value="${esc(type==="month"?String(l[k]||"").slice(0,7):(l[k]??""))}" ${extra}></label>`;
     const m=document.createElement("div"); m.className="modal modal-confirm";
-    m.innerHTML=`<div class="box" style="max-width:760px"><div class="modal-titlebar"><h2>${esc(titre)}</h2><button class="modal-x" type="button">×</button></div>
+    m.innerHTML=`<div class="box" style="max-width:820px"><div class="modal-titlebar"><h2>${esc(titre)}</h2><button class="modal-x" type="button">×</button></div>
       <div class="modal-content"><div class="grid g2">
         ${champ("dossier","Dossier (client)","text","required")}
         <label class="f"><span>Type d'opération</span><select data-fjf="type_operation"><option value="">— À choisir —</option>${types.map(t=>`<option value="${esc(t)}" ${l.type_operation===t?"selected":""}>${esc(t)}</option>`).join("")}${l.type_operation&&!types.includes(l.type_operation)?`<option value="${esc(l.type_operation)}" selected>${esc(l.type_operation)} (hors liste)</option>`:""}</select></label>
         ${champ("mission","Mission")}
         ${champ("honoraires","Honoraires HT (€)","number",'step="0.01" min="0"')}
+        <label class="f"><span>État</span><select data-fjf="etat"><option value="encours" ${l.etat!=="facture"?"selected":""}>En cours</option><option value="facture" ${l.etat==="facture"?"selected":""}>Facturé</option></select></label>
+        <label class="f"><span>Avancement</span><select data-fjf="avancement"><option value="">Automatique, selon les dates (${esc(fjEtapeDe({...l,avancement:""}).libelle)})</option>${E.map(e=>`<option value="${esc(e.id)}" ${l.avancement===e.id?"selected":""}>${esc(e.libelle)}</option>`).join("")}</select></label>
         ${champ("date_projet","Envoi du projet d'acte","date")}
         ${champ("date_signature","Signature des actes","date")}
         ${champ("date_depot_gtc","Dépôt GTC","date")}
         ${champ("date_fin_formalite","Fin de formalité","date")}
         ${champ("mois_facturation","Facturation — mois de rattachement","month",'placeholder="mm/aaaa"')}
-        <label class="f"><span>Dossier de l'outil de devis</span><select data-fjf="devis_id"><option value="">— Aucun —</option>${(st.devis||[]).filter(d=>!isArchivedDevis(d)).map(d=>`<option value="${esc(d.id)}" ${l.devis_id===d.id?"selected":""}>${esc((d.client?.raison||"Dossier")+(d.ref?" · "+d.ref:""))}</option>`).join("")}</select></label>
-        <label class="f" style="grid-column:1/-1"><span>Commentaires</span><textarea data-fjf="commentaires">${esc(l.commentaires||"")}</textarea></label>
-      </div></div>
+        <label class="f"><span>Dossier de l'outil de devis</span><select data-fjf="devis_id"><option value="">— Aucun —</option>${(st.devis||[]).filter(d=>!isArchivedDevis(d)||d.id===l.devis_id).map(d=>`<option value="${esc(d.id)}" ${l.devis_id===d.id?"selected":""}>${esc((d.client?.raison||"Dossier")+(d.ref?" · "+d.ref:""))}</option>`).join("")}</select></label>
+      </div>
+      <fieldset data-fj-bloc-debours style="margin-top:12px;border:1px solid var(--reglure);border-radius:8px;padding:10px 12px;${l.etat==="facture"?"":"display:none"}"><legend style="padding:0 6px"><b>Débours</b></legend>
+        <div class="grid g2">${FJ_DEBOURS.map(([k,lib])=>champ(k,lib+" (€)","number",'step="0.01" min="0"')).join("")}</div></fieldset>
+      <label class="f" style="margin-top:12px"><span>Commentaires</span><textarea data-fjf="commentaires">${esc(l.commentaires||"")}</textarea></label>
+      </div>
       <div class="modal-actions">${l.id?`<button class="btn" data-fj-suppr style="color:var(--rouge)">Supprimer</button><button class="btn" data-fj-scinder style="margin-right:auto" title="Créer une seconde ligne pour le même dossier (une ligne par opération)">Dupliquer la ligne</button>`:""}<button class="btn" data-no>Annuler</button><button class="btn p" data-yes>Enregistrer</button></div></div>`;
+    const lire=()=>m.querySelectorAll("[data-fjf]").forEach(el=>{ l[el.dataset.fjf]=el.value; });
     const fin=v=>{ m.remove(); resolve(v); };
+    m.querySelector("[data-fjf='etat']").onchange=e=>{ m.querySelector("[data-fj-bloc-debours]").style.display=e.target.value==="facture"?"":"none"; };
     m.querySelector(".modal-x").onclick=()=>fin(null);
     m.querySelector("[data-no]").onclick=()=>fin(null);
-    m.querySelector("[data-yes]").onclick=()=>{ m.querySelectorAll("[data-fjf]").forEach(el=>{ l[el.dataset.fjf]=el.value; }); fin(l); };
+    m.querySelector("[data-yes]").onclick=()=>{ lire(); if(l.etat==="facture"&&!l.mois_facturation){ toast("Indiquez le mois de rattachement de la facturation.",true); return; } fin(l); };
     const sup=m.querySelector("[data-fj-suppr]"); if(sup) sup.onclick=()=>fin({...l,__supprimer:true});
-    const sc=m.querySelector("[data-fj-scinder]"); if(sc) sc.onclick=()=>{ m.querySelectorAll("[data-fjf]").forEach(el=>{ l[el.dataset.fjf]=el.value; }); fin({...l,__scinder:true}); };
+    const sc=m.querySelector("[data-fj-scinder]"); if(sc) sc.onclick=()=>{ lire(); fin({...l,__scinder:true}); };
     document.body.appendChild(m); setTimeout(()=>m.querySelector("[data-fjf='dossier']")?.focus(),20);
   });
 }
@@ -425,37 +495,77 @@ async function fjEditer(ligne,titre){
     return;
   }
   if(r.__scinder){
-    /* La ligne d'origine est enregistrée telle quelle ; la copie part sans
-       montant ni dates d'avancement, à compléter. */
     const {__scinder,...orig}=r;
     if(!await fjEnregistrer(orig)) return;
     const {id,created_at,updated_at,...copie}=orig;
-    await fjEditer({...copie,mission:"",honoraires:"",date_depot_gtc:"",date_fin_formalite:"",mois_facturation:""},"Nouvelle ligne pour le même dossier");
+    await fjEditer({...copie,mission:"",honoraires:"",date_depot_gtc:"",date_fin_formalite:"",mois_facturation:"",etat:"encours",avancement:"",...Object.fromEntries(FJ_DEBOURS.map(([k])=>[k,""]))},"Nouvelle ligne pour le même dossier");
     return;
   }
   if(await fjEnregistrer(r)){ toast("Ligne enregistrée."); render(); }
 }
 
-/* --------------------------------------------------- gérer les listes */
+/* Passage en facturation : mois de rattachement + débours, puis la ligne
+   rejoint l'onglet « Facturés ». Sert aussi à modifier les débours. */
+function fjSaisieFacturation(l, passage){
+  const m=document.createElement("div"); m.className="modal modal-confirm";
+  const v=k=>l[k]??"";
+  m.innerHTML=`<div class="box" style="max-width:560px"><div class="modal-titlebar"><h2>${passage?"Passer en facturation":"Débours"} — ${esc(l.dossier)}</h2><button class="modal-x" type="button">×</button></div>
+    <div class="modal-content"><div class="grid g2">
+      <label class="f"><span>Mois de rattachement</span><input type="month" data-fjs="mois_facturation" value="${esc(String(l.mois_facturation||(passage?today():"")).slice(0,7))}" placeholder="mm/aaaa"></label>
+      <label class="f"><span>Honoraires HT (€)</span><input type="number" step="0.01" min="0" data-fjs="honoraires" value="${esc(v("honoraires"))}"></label>
+      ${FJ_DEBOURS.map(([k,lib])=>`<label class="f"><span>${esc(lib)} (€)</span><input type="number" step="0.01" min="0" data-fjs="${k}" value="${esc(v(k))}"></label>`).join("")}
+    </div><div class="hint" style="margin-top:8px">Les débours peuvent être complétés plus tard depuis l'onglet « Facturés ».</div></div>
+    <div class="modal-actions"><button class="btn" data-no>Annuler</button><button class="btn p" data-yes>${passage?"Passer en facturation":"Enregistrer"}</button></div></div>`;
+  const fermer=()=>m.remove();
+  m.querySelector(".modal-x").onclick=fermer; m.querySelector("[data-no]").onclick=fermer;
+  m.querySelector("[data-yes]").onclick=async()=>{
+    const x={...l}; m.querySelectorAll("[data-fjs]").forEach(el=>{ x[el.dataset.fjs]=el.value; });
+    if(!x.mois_facturation){ toast("Indiquez le mois de rattachement.",true); return; }
+    x.etat="facture";
+    if(await fjEnregistrer(x)){ fermer(); toast(passage?"Ligne passée en facturation.":"Débours enregistrés."); render(); }
+  };
+  document.body.appendChild(m);
+}
+
+/* --------------------------------------------------- paramètres */
 function fjGererListes(){
   const modeles=(st.modeles||[]).slice().sort((a,b)=>String(a.titre).localeCompare(String(b.titre),"fr"));
+  let etapes=fjEtapes().map(e=>({...e}));
   const m=document.createElement("div"); m.className="modal modal-confirm";
-  m.innerHTML=`<div class="box" style="max-width:720px"><div class="modal-titlebar"><h2>Gérer les listes</h2><button class="modal-x" type="button">×</button></div>
+  const ligneEtape=(e,i)=>`<div class="row" style="gap:8px;margin:5px 0;flex-wrap:nowrap" data-fj-etape-ligne="${i}">
+      <input type="color" data-fje="couleur" value="${fjCouleurSure(e.couleur)}" style="width:44px;padding:2px" title="Couleur">
+      <input type="text" data-fje="libelle" value="${esc(e.libelle)}" placeholder="Libellé" style="flex:1">
+      <select data-fje="date" style="width:auto" title="Date qui fait passer automatiquement à cette étape">${FJ_CHAMPS_DATE.map(([k,lib])=>`<option value="${k}" ${e.date===k?"selected":""}>${esc(lib)}</option>`).join("")}</select>
+      <button class="btn sm" data-fje-haut="${i}" title="Monter" ${i===0?"disabled":""}>↑</button><button class="btn sm" data-fje-bas="${i}" title="Descendre" ${i===etapes.length-1?"disabled":""}>↓</button><button class="btn sm" data-fje-suppr="${i}" title="Supprimer" ${etapes.length<=1?"disabled":""}>✕</button></div>`;
+  const lireEtapes=()=>{ m.querySelectorAll("[data-fj-etape-ligne]").forEach(row=>{ const i=+row.dataset.fjEtapeLigne; row.querySelectorAll("[data-fje]").forEach(el=>{ etapes[i][el.dataset.fje]=el.value; }); }); };
+  const dessinerEtapes=()=>{
+    const zone=m.querySelector("[data-fj-etapes]"); zone.innerHTML=etapes.map(ligneEtape).join("");
+    zone.querySelectorAll("[data-fje-haut]").forEach(b=>b.onclick=()=>{ lireEtapes(); const i=+b.dataset.fjeHaut; [etapes[i-1],etapes[i]]=[etapes[i],etapes[i-1]]; dessinerEtapes(); });
+    zone.querySelectorAll("[data-fje-bas]").forEach(b=>b.onclick=()=>{ lireEtapes(); const i=+b.dataset.fjeBas; [etapes[i+1],etapes[i]]=[etapes[i],etapes[i+1]]; dessinerEtapes(); });
+    zone.querySelectorAll("[data-fje-suppr]").forEach(b=>b.onclick=()=>{ lireEtapes(); etapes.splice(+b.dataset.fjeSuppr,1); dessinerEtapes(); });
+  };
+  m.innerHTML=`<div class="box" style="max-width:820px"><div class="modal-titlebar"><h2>Paramètres de la facturation juridique</h2><button class="modal-x" type="button">×</button></div>
     <div class="modal-content">
-      <label class="f"><span>Types d'opération — liste fermée, un par ligne</span><textarea data-fj-types style="min-height:220px">${esc(fjTypes().join("\n"))}</textarea>
+      <div class="f"><span><b>Avancement — étapes et couleurs</b></span>
+        <div class="hint">Dans l'ordre du parcours. Une étape liée à une date est atteinte dès que cette date est saisie ; l'avancement peut aussi être choisi à la main sur chaque ligne.</div>
+        <div data-fj-etapes></div><button class="btn sm" data-fj-etape-ajout style="margin-top:4px">Ajouter une étape</button></div>
+      <label class="f" style="margin-top:16px"><span><b>Types d'opération</b> — liste fermée, un par ligne</span><textarea data-fj-types style="min-height:200px">${esc(fjTypes().join("\n"))}</textarea>
       <div class="hint">Un type retiré de la liste reste affiché sur les lignes qui le portent, signalé « hors liste ».</div></label>
-      <label class="f" style="margin-top:12px"><span>Familles — une par ligne, au format « Famille : type ; type ; … »</span><textarea data-fj-familles style="min-height:180px">${esc(Object.entries(fjFamilles()).map(([f,ts])=>`${f} : ${(ts||[]).join(" ; ")}`).join("\n"))}</textarea>
-      <div class="hint">Un type absent de toutes les familles apparaît en « Non classé » dans le tableau de bord.</div></label>
-      <div class="f" style="margin-top:12px"><span>Modèles de devis dont les dossiers reclassés sont transférés automatiquement</span>
+      <label class="f" style="margin-top:12px"><span><b>Familles</b> — une par ligne : « Famille : type ; type ; … »</span><textarea data-fj-familles style="min-height:170px">${esc(Object.entries(fjFamilles()).map(([f,ts])=>`${f} : ${(ts||[]).join(" ; ")}`).join("\n"))}</textarea></label>
+      <div class="f" style="margin-top:12px"><span><b>Modèles de devis transférés</b> au reclassement du dossier</span>
         ${modeles.map(x=>`<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" data-fj-modele="${esc(x.id)}" ${fjModeleRetenu(x)?"checked":""}> ${esc(x.titre||"Modèle")}</label>`).join("")}
       </div>
     </div>
     <div class="modal-actions"><button class="btn" data-no>Annuler</button><button class="btn p" data-yes>Enregistrer</button></div></div>`;
+  document.body.appendChild(m); dessinerEtapes();
+  m.querySelector("[data-fj-etape-ajout]").onclick=()=>{ lireEtapes(); etapes.push({id:"e"+Date.now().toString(36),libelle:"Nouvelle étape",couleur:"#607D8B",date:""}); dessinerEtapes(); };
   const fermer=()=>m.remove();
   m.querySelector(".modal-x").onclick=fermer; m.querySelector("[data-no]").onclick=fermer;
   m.querySelector("[data-yes]").onclick=async()=>{
+    lireEtapes();
+    etapes=etapes.map(e=>({id:e.id||("e"+Date.now().toString(36)),libelle:String(e.libelle||"").trim(),couleur:fjCouleurSure(e.couleur),date:FJ_CHAMPS_DATE.some(([k])=>k===e.date)?e.date:""})).filter(e=>e.libelle);
+    if(!etapes.length){ toast("Il faut au moins une étape d'avancement.",true); return; }
     const types=[...new Set(m.querySelector("[data-fj-types]").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];
-    const mods=[...m.querySelectorAll("[data-fj-modele]")].filter(x=>x.checked).map(x=>x.dataset.fjModele);
     if(!types.length){ toast("La liste des types ne peut pas être vide.",true); return; }
     const familles={};
     for(const ligne of m.querySelector("[data-fj-familles]").value.split(/\r?\n/)){
@@ -465,9 +575,9 @@ function fjGererListes(){
     }
     const inconnus=Object.values(familles).flat().filter(t=>!types.includes(t));
     if(inconnus.length){ toast("Types inconnus dans les familles : "+inconnus.join(", "),true); return; }
-    if(await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("familles",familles) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Listes enregistrées."); render(); }
+    const mods=[...m.querySelectorAll("[data-fj-modele]")].filter(x=>x.checked).map(x=>x.dataset.fjModele);
+    if(await fjEnregistrerReglage("etapes",etapes) && await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("familles",familles) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Paramètres enregistrés."); render(); }
   };
-  document.body.appendChild(m);
 }
 
 /* ------------------------------------------------------------ import */
@@ -609,11 +719,13 @@ async function fjImporterFichier(f){
         ${lignes.map(l=>{const d=k=>l[k]?dateFR(l[k])+(l.__deduites.includes(k)?" *":""):"";return `<tr><td>${esc(l.dossier)}</td><td>${esc(l.type_operation)}</td><td>${esc(l.mission)}</td><td class="r num">${l.honoraires!=null?eur(l.honoraires):""}</td><td>${d("date_projet")}</td><td>${d("date_signature")}</td><td>${d("date_depot_gtc")}</td><td>${d("date_fin_formalite")}</td><td>${esc(fjMois(l.mois_facturation))}</td>${feuilles.length>1?`<td>${esc(l.__feuille)}</td>`:""}</tr>`;}).join("")}
         </tbody></table></div>
       </div>
-      <div class="modal-actions"><button class="btn" data-no>Annuler</button><button class="btn p" data-yes ${lignes.length?"":"disabled"}>Importer ${lignes.length} ligne(s)</button></div></div>`;
+      <div class="modal-actions"><label class="row" style="gap:6px;margin-right:auto">Importer comme <select data-fj-import-etat style="width:auto"><option value="encours">dossiers en cours</option><option value="facture">lignes facturées</option></select></label><button class="btn" data-no>Annuler</button><button class="btn p" data-yes ${lignes.length?"":"disabled"}>Importer ${lignes.length} ligne(s)</button></div></div>`;
     const fermer=()=>m.remove();
     m.querySelector(".modal-x").onclick=fermer; m.querySelector("[data-no]").onclick=fermer;
     m.querySelector("[data-yes]").onclick=async()=>{
-      const rows=lignes.map(fjLigneVersBase);
+      const etat=m.querySelector("[data-fj-import-etat]").value;
+      if(etat==="facture"&&lignes.some(l=>!l.mois_facturation)){ toast("Des lignes n'ont pas de mois de facturation : importez-les comme dossiers en cours.",true); return; }
+      const rows=lignes.map(l=>fjLigneVersBase({...l,etat}));
       const {data,error}=await SB.from("facturation_juridique").insert(rows).select();
       if(error){ toast("Import impossible : "+error.message,true); return; }
       FJ.lignes.push(...(data||[])); fermer(); render(); toast(`${data?.length||0} ligne(s) importée(s).`);
@@ -625,8 +737,8 @@ async function fjImporterFichier(f){
 /* ------------------------------------------------------------ export */
 function fjExporter(){
   const q=v=>`"${String(v??"").replace(/"/g,'""')}"`, nb=v=>v==null?"":String(v).replace(".",",");
-  const L=[["Dossier","Type","Mission","Honoraires","Projet","Signature","Dépôt GTC","Fin Formalité","Facturation","Statut","Commentaires"].map(q).join(";")];
-  for(const l of FJ.lignes) L.push([q(l.dossier),q(l.type_operation),q(l.mission),nb(l.honoraires),q(dateFR(l.date_projet)),q(dateFR(l.date_signature)),q(dateFR(l.date_depot_gtc)),q(dateFR(l.date_fin_formalite)),q(fjMois(l.mois_facturation)),q(FJ_STATUTS[fjStatut(l)][0]),q(l.commentaires)].join(";"));
+  const L=[["État","Avancement","Dossier","Type","Mission","Honoraires","Projet","Signature","Dépôt GTC","Fin Formalité","Facturation",...FJ_DEBOURS.map(([,lib])=>lib),"Commentaires"].map(q).join(";")];
+  for(const l of fjVisibles()) L.push([q(fjEtatsDe(l)==="facture"?"Facturé":"En cours"),q(fjEtatsDe(l)==="facture"?"":fjEtapeDe(l).libelle),q(l.dossier),q(l.type_operation),q(l.mission),nb(l.honoraires),q(dateFR(l.date_projet)),q(dateFR(l.date_signature)),q(dateFR(l.date_depot_gtc)),q(dateFR(l.date_fin_formalite)),q(fjMois(l.mois_facturation)),...FJ_DEBOURS.map(([k])=>nb(l[k])),q(l.commentaires)].join(";"));
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob(["﻿"+L.join("\r\n")],{type:"text/csv;charset=utf-8"}));
   a.download=`facturation-juridique-${today()}.csv`; a.click();
@@ -637,12 +749,14 @@ function fjExporter(){
 function fjLier(){
   if(st.view!=="juridique"||!FJ.acces) return;
   const un=(sel,f)=>document.querySelectorAll(sel).forEach(f);
-  un("[data-fj-filtre]",b=>b.onclick=()=>{ FJ.filtre=b.dataset.fjFiltre; render(); });
-  un("[data-fj-tri]",s=>s.onchange=()=>{ FJ.tri=s.value; render(); });
+  un("[data-fj-onglet]",b=>b.onclick=()=>{ FJ.onglet=b.dataset.fjOnglet; render(); });
+  un("[data-fj-etape]",b=>b.onclick=()=>{ FJ.filtreEtape=b.dataset.fjEtape; render(); });
+  un("[data-fj-exercice-factures]",x=>x.onchange=()=>{ FJ.exerciceFactures=x.value==="tous"?"tous":+x.value; render(); });
   un("[data-fj-recherche]",i=>i.oninput=()=>{ FJ.recherche=i.value; const pos=i.selectionStart; render(); const n=document.querySelector("[data-fj-recherche]"); if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(_){} } });
-  un("[data-fj-nouveau]",b=>b.onclick=()=>fjEditer({dossier:""},"Nouvelle ligne"));
+  un("[data-fj-nouveau]",b=>b.onclick=()=>fjEditer({dossier:"",etat:"encours"},"Nouvelle ligne"));
   un("[data-fj-modifier]",b=>b.onclick=()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjModifier); if(l) fjEditer(l,"Modifier la ligne"); });
-  un("[data-fj-facturer]",b=>b.onclick=async()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjFacturer); if(!l) return; if(await fjEnregistrer({...l,mois_facturation:today().slice(0,7)})){ toast("Marqué facturé ce mois-ci."); render(); } });
+  un("[data-fj-facturer]",b=>b.onclick=()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjFacturer); if(l) fjSaisieFacturation(l,true); });
+  un("[data-fj-debours]",b=>b.onclick=()=>{ const l=FJ.lignes.find(x=>x.id===b.dataset.fjDebours); if(l) fjSaisieFacturation(l,false); });
   un("[data-fj-suivre]",b=>b.onclick=()=>{ const d=st.devis.find(x=>x.id===b.dataset.fjSuivre); if(d) fjEditer(fjDepuisDossier(d),"Ajouter au suivi"); });
   un("[data-fj-ignorer]",b=>b.onclick=async()=>{
     const d=st.devis.find(x=>x.id===b.dataset.fjIgnorer);
@@ -651,7 +765,7 @@ function fjLier(){
     render();
   });
   /* Retour sur l'écran : transfert des dossiers validés entre-temps. */
-  if(Date.now()-FJ.derniereSync>30000) fjSynchroniser().then(n=>{ if(n){ toast(`${n} dossier(s) validé(s) transféré(s) automatiquement.`); render(); } });
+  if(Date.now()-FJ.derniereSync>30000) fjSynchroniser().then(n=>{ if(n){ toast(`${n} dossier(s) reclassé(s) transféré(s) dans les dossiers en cours.`); render(); } });
   un("[data-fj-devis]",b=>b.onclick=()=>{ st.id=b.dataset.fjDevis; st.view="devis1"; st.tab=rememberedTab(st.id); render(); });
   un("[data-fj-export]",b=>b.onclick=fjExporter);
   un("[data-fj-listes]",b=>b.onclick=fjGererListes);

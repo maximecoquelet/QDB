@@ -87,6 +87,26 @@ grant select, insert, update, delete on public.facturation_juridique to service_
 alter table public.facturation_juridique
   add column if not exists ecarte boolean not null default false;
 
+-- v55.4 — État de la ligne (en cours / facturée), décidé à la main ;
+-- étape d'avancement choisie à la main (sinon déduite des dates) ;
+-- débours saisis au passage en facturation.
+alter table public.facturation_juridique
+  add column if not exists etat                       text not null default 'encours',
+  add column if not exists avancement                 text,
+  add column if not exists debours_greffe_tva         numeric(12,2),
+  add column if not exists debours_greffe_hors_tva    numeric(12,2),
+  add column if not exists debours_jal                numeric(12,2),
+  add column if not exists debours_enregistrement     numeric(12,2);
+
+do $etat$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'fj_etat_valide') then
+    alter table public.facturation_juridique
+      add constraint fj_etat_valide check (etat in ('encours','facture'));
+  end if;
+end
+$etat$;
+
 -- Un même dossier de devis peut être scindé à la main en plusieurs lignes
 -- (une par opération) : pas d'unicité sur devis_id.
 drop index if exists public.fj_devis_unique;
