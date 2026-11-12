@@ -1104,3 +1104,7 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
 .ca-sous-table th:last-child,.ca-sous-table td:last-child{white-space:nowrap}
 /* Repère de suivi : les dossiers déjà retraités se voient dans la liste. */
 .ca-retrait{font-size:11.5px;font-weight:600;color:var(--vert);white-space:nowrap;margin-top:1px}
+
+/* v55 — facturation juridique */
+.fj-table td,.fj-table th{vertical-align:middle}
+.fj-table .tag,.fj-table td:nth-child(n+4):nth-child(-n+9){white-space:nowrap}

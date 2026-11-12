@@ -17,6 +17,8 @@
      le script v50 n'a pas été exécuté, l'application fonctionne comme avant
      et le signale aux administrateurs. */
   await detecterCapacites();
+  /* v55 : écran de facturation juridique, affiché aux seuls comptes autorisés par la base. */
+  if(typeof fjInitialiser==="function") await fjInitialiser();
   const [cab,mod,lm,dev,cli,reg,ys,audit,trash,errors]=await Promise.all([S.get(K.cab,true),S.get(K.mod,true),S.get(K.lm,true),S.get(K.dev,true),S.get(K.cli,true),S.get(K.reg,true),S.get(K.ys,true),S.get(K.audit,true),S.get(K.trash,true),S.get(K.errors,true)]);
   try{ if(cab) st.cab={...CAB_DEF,...JSON.parse(cab)}; }catch(e){}
   try{ if(mod) st.modeles=JSON.parse(mod)||[]; st.modeles.forEach(normalizeModelUx); }catch(e){}
