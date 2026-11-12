@@ -22,7 +22,8 @@ const FJ = {
   tri: "facturation",
   colonneEcarte: false, /* script v55.1 passé : les retraits sont conservés en base */
   reglagesEnBase: false,
-  reglages: { types: null, modeles: null },  /* null = valeurs par défaut */
+  reglages: { types: null, modeles: null, familles: null },  /* null = valeurs par défaut */
+  exercice: null,      /* année de début de l'exercice affiché (juin → mai) */
   derniereSync: 0
 };
 
@@ -190,9 +191,43 @@ function fjMontant(v){
 const fjMois = iso => { if(!iso) return ""; const [a,m]=String(iso).split("-"); return `${m}/${a}`; };
 const fjMoisLong = iso => { if(!iso) return ""; const d=new Date(String(iso).slice(0,7)+"-01T00:00:00"); return d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}); };
 
+/* =====================================================================
+   v55.3 — EXERCICE DE JUIN À MAI ET TABLEAUX DE BORD
+   Reprend les feuilles « Données » du classeur : totaux par mois avec
+   comparaison N-1 et part JLT, totaux par type, totaux par famille.
+   Le mois retenu est le mois de rattachement (colonne Facturation).
+   ===================================================================== */
+const FJ_FAMILLES_DEFAUT = {
+  "Constitution":["Constitution par apport","Constitution Pluri","Constitution SCI","Constitution Uni"],
+  "Transformation":["Transformation en SARL","Transformation en SAS"],
+  "AGOA + Dividendes":["2777 et dividendes","AGOA"],
+  "Dissolution - Liquidation - TUP":["Dissolution / Liquidation","CAMP","TUP / Fusion"],
+  "Evaluation":["Evaluation"],
+  "Modifications statutaires":["Modif date de clôture","Modification d'objet social","Modification Présidence","Modifications multiples","Transfert de siège","Opérations capitalistiques"],
+  "JLT":["JLT"],
+  "Conventions + Cessions de titres":["Cession d'actions / parts sociales","Conventions (tréso / MF / C.C / obligations / bail)"],
+  "Autres":["Dépôt marque","Etablissement supplémentaire"]
+};
+const fjFamilles = () => FJ.reglages.familles&&typeof FJ.reglages.familles==="object"&&Object.keys(FJ.reglages.familles).length ? FJ.reglages.familles : FJ_FAMILLES_DEFAUT;
+function fjFamilleDe(type){ for(const [f,ts] of Object.entries(fjFamilles())) if((ts||[]).includes(type)) return f; return type?"Non classé":"Sans type"; }
+
+/* Exercice : de juin N à mai N+1, désigné par N. */
+const fjExerciceDe = iso => { const [a,m]=String(iso).split("-").map(Number); return m>=6?a:a-1; };
+const fjLibelleExercice = n => `06.${String(n).slice(2)} au 05.${String(n+1).slice(2)}`;
+const fjMoisExercice = n => Array.from({length:12},(_,i)=>{ const m=(5+i)%12+1, a=i<7?n:n+1; return `${a}-${String(m).padStart(2,"0")}`; });
+const fjEstJlt = l => l.type_operation==="JLT" || normClient(l.dossier)==="jlt";
+
+function fjExercicesDisponibles(){
+  const set=new Set(fjVisibles().filter(l=>l.mois_facturation).map(l=>fjExerciceDe(l.mois_facturation)));
+  set.add(fjExerciceDe(today()));
+  return [...set].sort((a,b)=>b-a);
+}
+
 function fjSynthese(){
-  const moisCourant=today().slice(0,7), annee=today().slice(0,4);
-  const s={encours:{n:0,m:0},afacturer:{n:0,m:0},moisCourant:0,annee:0,parMois:{}};
+  const moisCourant=today().slice(0,7), ex=fjExerciceDe(today());
+  const s={encours:{n:0,m:0},afacturer:{n:0,m:0},moisCourant:0,exercice:0,exerciceN1MemePeriode:0,parMois:{}};
+  /* N-1 à période comparable : mêmes mois écoulés de l'exercice précédent. */
+  const moisEcoules=new Set(fjMoisExercice(ex).filter(m=>m<=moisCourant).map(m=>`${+m.slice(0,4)-1}${m.slice(4)}`));
   for(const l of fjVisibles()){
     const h=+l.honoraires||0, st_=fjStatut(l);
     if(st_==="encours"){ s.encours.n++; s.encours.m+=h; }
@@ -201,10 +236,29 @@ function fjSynthese(){
       const m=String(l.mois_facturation).slice(0,7);
       s.parMois[m]=(s.parMois[m]||0)+h;
       if(m===moisCourant) s.moisCourant+=h;
-      if(m.slice(0,4)===annee) s.annee+=h;
+      if(fjExerciceDe(m)===ex) s.exercice+=h;
+      if(moisEcoules.has(m)) s.exerciceN1MemePeriode+=h;
     }
   }
   return s;
+}
+
+function fjTableauExercice(n){
+  const mois=fjMoisExercice(n), lignes=fjVisibles().filter(l=>l.mois_facturation&&fjExerciceDe(l.mois_facturation)===n);
+  const precedentes=fjVisibles().filter(l=>l.mois_facturation&&fjExerciceDe(l.mois_facturation)===n-1);
+  const parMois=mois.map(m=>{
+    const du=lignes.filter(l=>String(l.mois_facturation).slice(0,7)===m), n1=precedentes.filter(l=>String(l.mois_facturation).slice(0,7)===`${+m.slice(0,4)-1}${m.slice(4)}`);
+    const t=du.reduce((a,l)=>a+(+l.honoraires||0),0), j=du.filter(fjEstJlt).reduce((a,l)=>a+(+l.honoraires||0),0), p=n1.reduce((a,l)=>a+(+l.honoraires||0),0);
+    return {m,t,j,p};
+  });
+  const total=parMois.reduce((a,x)=>a+x.t,0);
+  const types={}, familles={};
+  for(const l of lignes){
+    const t=l.type_operation||"Sans type", h=+l.honoraires||0;
+    types[t]=types[t]||{h:0,n:0}; types[t].h+=h; types[t].n++;
+    const f=fjFamilleDe(l.type_operation); familles[f]=(familles[f]||0)+h;
+  }
+  return {parMois,total,types,familles,nb:lignes.length};
 }
 
 /* Dossiers juridiques signés dans l'outil de devis, pas encore suivis ici. */
@@ -258,7 +312,6 @@ VIEWS.juridique = () => {
   const compte=f=>f==="tous"?fjVisibles().length:fjVisibles().filter(l=>fjStatut(l)===f).length;
   const onglet=(f,l)=>`<button class="vue-onglet ${FJ.filtre===f?"on":""}" data-fj-filtre="${f}">${l} <span class="vue-compte">${compte(f)}</span></button>`;
   const dt=v=>v?dateFR(v):`<span class="dim">—</span>`;
-  const moisRecents=Object.keys(s.parMois).sort().reverse().slice(0,12);
 
   return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${FJ.colonneEcarte&&FJ.reglagesEnBase?"":` · <b>relancer le script v55 dans Supabase (mise à jour)</b>`}</span><span class="spacer"></span>
     <button class="btn" data-fj-listes>Gérer les listes</button>
@@ -272,7 +325,7 @@ VIEWS.juridique = () => {
       ${kpi("En cours",eur0(s.encours.m),`${s.encours.n} mission(s), formalité non terminée`)}
       ${kpi("À facturer",eur0(s.afacturer.m),`${s.afacturer.n} mission(s), formalité terminée`)}
       ${kpi("Facturé ce mois",eur0(s.moisCourant),esc(fjMoisLong(today())))}
-      ${kpi(`Facturé ${today().slice(0,4)}`,eur0(s.annee),"Cumul de l'année civile")}
+      ${kpi(`Exercice ${fjLibelleExercice(fjExerciceDe(today()))}`,eur0(s.exercice),s.exerciceN1MemePeriode?`N-1 à date : ${eur0(s.exerciceN1MemePeriode)} (${s.exercice>=s.exerciceN1MemePeriode?"+":""}${Math.round((s.exercice-s.exerciceN1MemePeriode)/s.exerciceN1MemePeriode*100)} %)`:"Juin à mai")}
     </div>
     ${aSuivre.length?`<details class="card" style="margin-bottom:14px" ${aSuivre.length<=5?"open":""}><summary class="hd" style="cursor:pointer">Missions juridiques exceptionnelles reclassées dans l'outil, non encore suivies ici <span class="tag ocre">${aSuivre.length}</span></summary><div class="bd">
       <table class="synthese-table"><thead><tr><th>Client</th><th>Devis</th><th>Classé le</th><th class="r">Honoraires HT</th><th></th></tr></thead><tbody>
@@ -298,11 +351,38 @@ VIEWS.juridique = () => {
         <tfoot><tr class="total"><td colspan="3"><b>Total (${lignes.length} ligne(s) affichée(s))</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="7"></td></tr></tfoot>
       </table></div>
     </div></div>
-    ${moisRecents.length?`<div class="card" style="margin-top:14px;max-width:520px"><div class="hd">Facturé par mois</div><div class="bd"><table class="synthese-table"><tbody>
-      ${moisRecents.map(m=>`<tr><td>${esc(fjMoisLong(m))}</td><td class="r num money-strong">${eur0(s.parMois[m])}</td></tr>`).join("")}
-    </tbody></table></div></div>`:""}
+    ${fjTableauDeBordHTML()}
   </div>`;
 };
+
+function fjTableauDeBordHTML(){
+  const dispo=fjExercicesDisponibles();
+  const n=dispo.includes(FJ.exercice)?FJ.exercice:dispo[0];
+  const d=fjTableauExercice(n), pct=(a,b)=>b?`${Math.round(a/b*1000)/10} %`:"—";
+  const ecart=(t,p)=>p?`<span class="${t>=p?"":"dim"}">${t>=p?"+":""}${Math.round((t-p)/p*100)} %</span>`:`<span class="dim">—</span>`;
+  const totP=d.parMois.reduce((a,x)=>a+x.p,0), totJ=d.parMois.reduce((a,x)=>a+x.j,0);
+  const types=Object.entries(d.types).sort((a,b)=>b[1].h-a[1].h);
+  const fams=Object.keys(fjFamilles()).map(f=>[f,d.familles[f]||0]);
+  for(const f of ["Non classé","Sans type"]) if(d.familles[f]) fams.push([f,d.familles[f]]);
+  return `<div class="card" style="margin-top:14px"><div class="hd" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Tableau de bord — exercice
+      <select data-fj-exercice style="width:auto;min-width:150px">${dispo.map(x=>`<option value="${x}" ${x===n?"selected":""}>${fjLibelleExercice(x)}</option>`).join("")}</select>
+      <span class="dim" style="font-weight:400">${d.nb} ligne(s) · ${eur0(d.total)} HT</span></div>
+    <div class="bd"><div class="grid g2" style="align-items:start;gap:18px">
+      <div style="overflow-x:auto"><table class="synthese-table fj-table"><thead><tr><th>Mois</th><th class="r">Honoraires</th><th class="r">Dont JLT</th><th class="r">%</th><th class="r">N-1</th><th class="r">Écart</th></tr></thead><tbody>
+        ${d.parMois.map(x=>`<tr><td>${esc(fjMoisLong(x.m))}</td><td class="r num">${x.t?eur0(x.t):`<span class="dim">—</span>`}</td><td class="r num">${x.j?eur0(x.j):`<span class="dim">—</span>`}</td><td class="r num">${x.t?pct(x.j,x.t):"—"}</td><td class="r num">${x.p?eur0(x.p):`<span class="dim">—</span>`}</td><td class="r num">${x.m>today().slice(0,7)?"":(x.t||x.p?ecart(x.t,x.p):"")}</td></tr>`).join("")}
+      </tbody><tfoot><tr class="total"><td><b>Total</b></td><td class="r num"><b>${eur0(d.total)}</b></td><td class="r num">${eur0(totJ)}</td><td class="r num">${pct(totJ,d.total)}</td><td class="r num">${eur0(totP)}</td><td class="r num">${ecart(d.total,totP)}</td></tr></tfoot></table>
+      <div class="hint">N-1 : même mois de l'exercice précédent. Écart sur l'année complète ; pour l'exercice en cours, voir l'indicateur « N-1 à date » en haut.</div></div>
+      <div>
+        <table class="synthese-table"><thead><tr><th>Famille</th><th class="r">Honoraires</th><th class="r">%</th></tr></thead><tbody>
+          ${fams.map(([f,h])=>`<tr><td>${esc(f)}</td><td class="r num">${h?eur0(h):`<span class="dim">—</span>`}</td><td class="r num">${pct(h,d.total)}</td></tr>`).join("")}
+        </tbody></table>
+        <details style="margin-top:12px"><summary style="cursor:pointer"><b>Par type d'opération</b> (${types.length})</summary>
+        <table class="synthese-table"><thead><tr><th>Type</th><th class="r">Honoraires</th><th class="r">Nombre</th><th class="r">%</th></tr></thead><tbody>
+          ${types.map(([t,v])=>`<tr><td>${esc(t)}</td><td class="r num">${eur0(v.h)}</td><td class="r num">${v.n}</td><td class="r num">${pct(v.h,d.total)}</td></tr>`).join("")}
+        </tbody></table></details>
+      </div>
+    </div></div></div>`;
+}
 
 /* ------------------------------------------------------- formulaire */
 function fjFormulaire(ligne, titre){
@@ -364,6 +444,8 @@ function fjGererListes(){
     <div class="modal-content">
       <label class="f"><span>Types d'opération — liste fermée, un par ligne</span><textarea data-fj-types style="min-height:220px">${esc(fjTypes().join("\n"))}</textarea>
       <div class="hint">Un type retiré de la liste reste affiché sur les lignes qui le portent, signalé « hors liste ».</div></label>
+      <label class="f" style="margin-top:12px"><span>Familles — une par ligne, au format « Famille : type ; type ; … »</span><textarea data-fj-familles style="min-height:180px">${esc(Object.entries(fjFamilles()).map(([f,ts])=>`${f} : ${(ts||[]).join(" ; ")}`).join("\n"))}</textarea>
+      <div class="hint">Un type absent de toutes les familles apparaît en « Non classé » dans le tableau de bord.</div></label>
       <div class="f" style="margin-top:12px"><span>Modèles de devis dont les dossiers reclassés sont transférés automatiquement</span>
         ${modeles.map(x=>`<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" data-fj-modele="${esc(x.id)}" ${fjModeleRetenu(x)?"checked":""}> ${esc(x.titre||"Modèle")}</label>`).join("")}
       </div>
@@ -375,7 +457,15 @@ function fjGererListes(){
     const types=[...new Set(m.querySelector("[data-fj-types]").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];
     const mods=[...m.querySelectorAll("[data-fj-modele]")].filter(x=>x.checked).map(x=>x.dataset.fjModele);
     if(!types.length){ toast("La liste des types ne peut pas être vide.",true); return; }
-    if(await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Listes enregistrées."); render(); }
+    const familles={};
+    for(const ligne of m.querySelector("[data-fj-familles]").value.split(/\r?\n/)){
+      const i=ligne.indexOf(":"); if(i<0) continue;
+      const f=ligne.slice(0,i).trim(), ts=ligne.slice(i+1).split(";").map(x=>x.trim()).filter(Boolean);
+      if(f) familles[f]=ts;
+    }
+    const inconnus=Object.values(familles).flat().filter(t=>!types.includes(t));
+    if(inconnus.length){ toast("Types inconnus dans les familles : "+inconnus.join(", "),true); return; }
+    if(await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("familles",familles) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Listes enregistrées."); render(); }
   };
   document.body.appendChild(m);
 }
@@ -565,6 +655,7 @@ function fjLier(){
   un("[data-fj-devis]",b=>b.onclick=()=>{ st.id=b.dataset.fjDevis; st.view="devis1"; st.tab=rememberedTab(st.id); render(); });
   un("[data-fj-export]",b=>b.onclick=fjExporter);
   un("[data-fj-listes]",b=>b.onclick=fjGererListes);
+  un("[data-fj-exercice]",x=>x.onchange=()=>{ FJ.exercice=+x.value; render(); });
   const fichier=document.querySelector("[data-fj-fichier]");
   un("[data-fj-import]",b=>b.onclick=()=>fichier?.click());
   if(fichier) fichier.onchange=()=>{ const f=fichier.files?.[0]; fichier.value=""; if(f) fjImporterFichier(f); };
