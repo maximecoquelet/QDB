@@ -332,8 +332,8 @@ function fjDepuisDossier(d){
 
 VIEWS.juridique = () => {
   if(!FJ.acces) return `<div class="top"><h1>Facturation juridique</h1></div><div class="wrap"><div class="notice">Accès non autorisé.</div></div>`;
-  const onglet=["encours","factures","stats"].includes(FJ.onglet)?FJ.onglet:"encours";
-  const nb={encours:fjEncours().length,factures:fjFactures().length};
+  const onglet=["encours","envoyes","factures","stats"].includes(FJ.onglet)?FJ.onglet:"encours";
+  const nb={encours:fjEncours().length,factures:fjFactures().length,envoyes:fjDevisEnvoyes().length};
   const tab=(k,l,n)=>`<button class="vue-onglet ${onglet===k?"on":""}" data-fj-onglet="${k}">${l}${n!=null?` <span class="vue-compte">${n}</span>`:""}</button>`;
   const manque=!(FJ.colonneEcarte&&FJ.reglagesEnBase&&FJ.colonneEtat);
   return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${manque?` · <b>relancer le script v55 dans Supabase (mise à jour)</b>`:""}</span><span class="spacer"></span>
@@ -344,8 +344,8 @@ VIEWS.juridique = () => {
     <input type="file" data-fj-fichier accept=".csv,.txt,.xlsx,.xls" hidden></div>
   <div class="wrap">
     ${FJ.erreur?`<div class="notice rouge" style="margin-bottom:12px">${esc(FJ.erreur)}</div>`:""}
-    <div class="vues-barre" style="margin-bottom:14px">${tab("encours","Dossiers en cours",nb.encours)}${tab("factures","Facturés",nb.factures)}${tab("stats","Statistiques")}</div>
-    ${onglet==="stats"?fjTableauDeBordHTML():onglet==="factures"?fjVueFactures():fjVueEncours()}
+    <div class="vues-barre" style="margin-bottom:14px">${tab("encours","Dossiers en cours",nb.encours)}${tab("envoyes","Devis envoyés",nb.envoyes)}${tab("factures","Facturés",nb.factures)}${tab("stats","Statistiques")}</div>
+    ${onglet==="stats"?fjTableauDeBordHTML():onglet==="factures"?fjVueFactures():onglet==="envoyes"?fjVueDevisEnvoyes():fjVueEncours()}
   </div>`;
 };
 
@@ -388,6 +388,53 @@ function fjVueEncours(){
           <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-facturer="${esc(l.id)}" title="Passer en facturation">Facturer</button><button class="btn sm" data-fj-modifier="${esc(l.id)}" title="Modifier la ligne">Modifier</button></div></td></tr>`;}).join("")||`<tr><td colspan="10"><div class="empty-state"><b>Aucun dossier en cours</b></div></td></tr>`}</tbody>
         <tfoot><tr class="total"><td colspan="3"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="5"></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
+    </div></div>`;
+}
+
+/* =====================================================================
+   v55.7 — DEVIS ENVOYÉS, NON ACCEPTÉS
+   Devis établis sur les modèles retenus (« Mission juridique
+   exceptionnelle ») envoyés au client mais pas encore acceptés : même
+   statut « Envoyé » que dans le portefeuille. Accès au devis en un clic.
+   Lecture seule : l'acceptation se coche dans l'outil de devis.
+   ===================================================================== */
+function fjDevisEnvoyes(){
+  const out=[];
+  for(const d of (st.devis||[])){
+    try{
+      if(isArchivedDevis(d)) continue;
+      if(workflowStatut(d)!=="envoye") continue;
+      const m=modOf(d); if(!fjModeleRetenu(m)) continue;
+      const ms=manualSignState(d.manualSign);
+      const envoi=String(ms.sentDate||d.sign?.envoye||"").slice(0,10);
+      out.push({d,m,envoi,ht:+totaux(d,m).ht||0,yousign:!!d.sign?.id});
+    }catch(_){}
+  }
+  return out.sort((a,b)=>String(a.envoi||"9").localeCompare(String(b.envoi||"9")));
+}
+
+function fjVueDevisEnvoyes(){
+  const q=normClient(FJ.recherche||"");
+  const liste=fjDevisEnvoyes().filter(x=>!q||normClient(`${x.d.client?.raison||""} ${x.d.ref||""} ${intituleDevis(x.d)}`).includes(q));
+  const auj=new Date(today()+"T00:00:00");
+  const jours=iso=>iso?Math.round((auj-new Date(iso+"T00:00:00"))/86400000):null;
+  const total=liste.reduce((t,x)=>t+x.ht,0);
+  return `<div class="card"><div class="bd">
+      ${fjBarreRecherche(`<div class="hint" style="margin:0">Devis « Mission juridique exceptionnelle » envoyés, en attente d'acceptation. L'acceptation se coche dans le dossier.</div>`)}
+      <div style="overflow-x:auto"><table class="synthese-table fj-table">
+        <thead><tr><th>Envoyé le</th><th>Attente</th><th>Client</th><th>Devis</th><th>Intitulé</th><th class="r">Honoraires HT</th><th>Envoi</th><th class="fj-actions"></th></tr></thead>
+        <tbody>${liste.map(x=>{const j=jours(x.envoi);return `<tr>
+          <td>${fjDt(x.envoi)}</td>
+          <td>${j==null?`<span class="dim">—</span>`:`<span class="tag ${j>30?"rouge":j>15?"ocre":"gris"}">${j} j</span>`}</td>
+          <td><b>${esc(x.d.client?.raison||"Dossier")}</b></td>
+          <td>${esc(x.d.ref||"—")}</td>
+          <td>${esc(intituleDevis(x.d)!=="Devis"?intituleDevis(x.d):(x.m?.titre||""))}</td>
+          <td class="r num">${eur(x.ht)}</td>
+          <td>${x.yousign?"Yousign":"Manuel"}</td>
+          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-devis="${esc(x.d.id)}">Ouvrir le devis</button></div></td></tr>`;}).join("")||`<tr><td colspan="8"><div class="empty-state"><b>Aucun devis en attente d'acceptation</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="5"><b>Total (${liste.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td></td><td class="fj-actions"></td></tr></tfoot>
+      </table></div>
+      <div class="hint" style="margin-top:8px">Pastille : gris jusqu'à 15 jours d'attente, orange au-delà, rouge après 30 jours.</div>
     </div></div>`;
 }
 
