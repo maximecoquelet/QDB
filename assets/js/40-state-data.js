@@ -1171,7 +1171,7 @@ function newDevis(modeleId){
   logAudit(d,"Devis créé"); return d;
 }
 const STATUTS = { brouillon:["Brouillon","gris"], genere:["Devis établi","ocre"], envoye:["Envoyé pour signature","ocre"],
-  valide:["Validé par le client","vert"], signe:["Signé","vert"], classe:["Classé","vert"], refuse:["Refusé","rouge"], expire:["Expiré","rouge"] };
+  valide:["Validé par le client","vert"], signe:["Signé","vert"], classe:["Classé","vert"], refuse:["Refusé","rouge"], expire:["Expiré","rouge"], sans_suite:["Sans suite","gris"] };
 /* Points restant à traiter avant de pouvoir engager la mission : ils
    proviennent des questionnaires d'acceptation et anti-blanchiment. */
 function controleConformite(d){

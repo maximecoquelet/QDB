@@ -656,10 +656,13 @@ const ACTS = {
     /* v49 : le verrou se pose dès que le devis est signé, par quelque
        chemin que ce soit — signature du devis, de la lettre, ou classement
        direct. Avant cela, le dossier reste modifiable. */
+    /* v55.8 : un devis accepté n'est plus « sans suite ». */
+    if(m.quoteSigned||m.lmSigned||m.filed) delete d.sansSuite;
     if(!d.frozenAt && (m.quoteSigned||m.lmSigned||m.filed)) freezeDocuments(d);
     if(m.filed) d.statut="classe";
     else if(avecLm&&m.lmSigned) d.statut="signe";
     else if(m.quoteSigned) d.statut=avecLm?"valide":"signe";
+    else if(d.sansSuite) d.statut="sans_suite";
     else if(m.sent) d.statut="envoye";
     else if(d.sign?.id){
       d.statut=d.sign.statut==="done"?"signe":d.sign.statut==="declined"?"refuse":d.sign.statut==="expired"?"expire":"envoye";

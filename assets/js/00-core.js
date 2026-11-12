@@ -10,7 +10,7 @@
    ====================================================================== */
 const SUPABASE_URL = "https://ueuhedaqpzxmjrcjktmw.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_QH-5FvLviSJJZD3Fne_CPQ_KeYWDrGm";
-const APP_VERSION = "55.7-interne";
+const APP_VERSION = "55.8-interne";
 const APP_BUILD_DATE = "2026-11-11";
 
 /* v54 — Lien d'invitation ou de réinitialisation reçu par e-mail.
@@ -110,6 +110,8 @@ function workflowStatut(d){
   if(ms.filed) return "classe";
   if(avecLm && ms.lmSigned) return "signe";
   if(ms.quoteSigned) return avecLm ? "valide" : "signe";
+  /* v55.8 : devis envoyé que le client n'a pas retenu, déclaré à la main. */
+  if(d?.sansSuite) return "sans_suite";
   if(ms.sent) return "envoye";
   if(d?.sign?.statut==="done") return "signe";
   if(d?.sign?.statut==="declined") return "refuse";

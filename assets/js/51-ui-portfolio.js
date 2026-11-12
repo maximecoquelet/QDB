@@ -175,7 +175,7 @@ VIEWS.devis = () => {
   const punctualLegal=punctualAll.filter(d=>dashboardColorType(d,modOf(d))==="legal");
   const active=st.devis.filter(d=>!isArchivedDevis(d));
   const activeClassed=active.filter(d=>workflowStatut(d)==="classe").length;
-  const eligible=active.filter(d=>!["refuse","expire"].includes(workflowStatut(d)));
+  const eligible=active.filter(d=>!["refuse","expire","sans_suite"].includes(workflowStatut(d)));
   /* v52 : deux natures d'honoraires, longtemps confondues sous un seul
      total. « Proposé » = ce qui est parti chez le client et attend sa
      réponse (statuts devis établi et envoyé). « Contractualisé » = ce que
@@ -234,7 +234,7 @@ const kpi=(t,v,s)=>`<div class="card kpi-card"><div class="bd">
   <div class="kpi-label">${t}</div>
   <div class="kpi-value">${v}</div>
   <div class="kpi-help">${s}</div></div></div>`;
-function clientStats(c){ const ds=st.devis.filter(d=>d.clientId===c.id), active=ds.filter(d=>!["refuse","expire"].includes(workflowStatut(d))), rec=active.reduce((n,d)=>n+totaux(d,modOf(d)).recAn,0), pon=active.reduce((n,d)=>n+totaux(d,modOf(d)).pon,0), last=[...ds].sort((a,b)=>String(b.majAt||b.maj||b.cree||"").localeCompare(String(a.majAt||a.maj||a.cree||"")))[0]; return {ds,active,rec,pon,last}; }
+function clientStats(c){ const ds=st.devis.filter(d=>d.clientId===c.id), active=ds.filter(d=>!["refuse","expire","sans_suite"].includes(workflowStatut(d))), rec=active.reduce((n,d)=>n+totaux(d,modOf(d)).recAn,0), pon=active.reduce((n,d)=>n+totaux(d,modOf(d)).pon,0), last=[...ds].sort((a,b)=>String(b.majAt||b.maj||b.cree||"").localeCompare(String(a.majAt||a.maj||a.cree||"")))[0]; return {ds,active,rec,pon,last}; }
 VIEWS.clients=()=>{ const q=normClient(st.clientQ), f=st.portFilters?.archive||"active"; const arr=sortClientRows([...st.clients].filter(c=>(f==="all"?true:f==="archived"?c.archive:!c.archive)&&(!q||normClient(`${c.raison} ${c.siren} ${c.ville} ${c.contact} ${c.email}`).includes(q)))); return `<div class="top"><h1>Clients</h1><span class="sub">${arr.length} fiche(s)</span><span class="spacer"></span><input data-client-search type="text" placeholder="Rechercher un client…" value="${esc(st.clientQ)}" style="width:260px">${blankQuestionnaireMenuHTML()}<button class="btn sm density-toggle" data-act="uiDensity">${uiDensity()==="compact"?"Vue confortable":"Vue compacte"}</button><button class="btn p" data-nav="nouveau">Nouveau devis</button></div><div class="wrap"><div class="filterbar"><label><span>Afficher</span><select data-filter="archive"><option value="active" ${f==="active"?"selected":""}>Clients actifs</option><option value="archived" ${f==="archived"?"selected":""}>Clients archivés</option><option value="all" ${f==="all"?"selected":""}>Tous les clients</option></select></label></div><div class="card"><table class="client-table"><thead><tr><th><button class="sort-btn" data-client-sort="client">Client${st.clientSort.key==="client"?(st.clientSort.dir==="asc"?" ↑":" ↓"):""}</button></th><th>Contact</th><th class="r">Missions</th><th class="r"><button class="sort-btn" data-client-sort="rec">Récurrent HT/an${st.clientSort.key==="rec"?(st.clientSort.dir==="asc"?" ↑":" ↓"):""}</button></th><th>Dernier devis</th><th></th></tr></thead><tbody>${arr.map(c=>{const x=clientStats(c);return `<tr data-client-row="${c.id}" title="Cliquer pour ouvrir la fiche client"><td><span class="client-name">${esc(c.raison||"Sans nom")}</span>${c.archive?` <span class="tag gris">Archivé</span>`:""}<div class="dim">${esc(c.forme||"")} ${esc(c.siren||"")} · ${esc(c.ville||"")}</div></td><td>${esc(c.contact||"—")}<div class="dim">${esc(c.email||"")}</div></td><td class="r num">${x.active.length}</td><td class="r num money-strong">${x.rec?eur0(x.rec):"—"}</td><td>${x.last?`${esc(x.last.ref||"Brouillon")}<div class="dim">${dateFR(x.last.dateDevis||x.last.cree)}</div>`:"—"}</td><td class="r"><button class="btn sm" data-client-open="${c.id}">Ouvrir</button>${c.archive&&canRole("manager")?` <button class="btn sm danger" data-act="clientDeletePermanent" data-client="${c.id}">Supprimer définitivement</button>`:""}</td></tr>`;}).join("")||`<tr><td colspan="6"><div class="empty-state"><div class="empty-mark">＋</div><b>Aucun client à afficher</b><small>Créez un devis pour créer automatiquement la fiche client correspondante.</small><button class="btn p" data-nav="nouveau" style="margin-top:12px">Nouveau devis</button></div></td></tr>`}</tbody></table></div></div>`; };
 /* ------------------------------------------------ fiche client : notes */
 function clientNotesCardHTML(c){
@@ -304,7 +304,7 @@ const CA_CATS_VISIBLES=["Comptabilité","Juridique","Social"];
    un dossier classé ou dont la lettre est signée l'a forcément franchie. */
 function caRetenu(d){
   if(!d || isArchivedDevis(d)) return false;
-  if(["refuse","expire"].includes(workflowStatut(d))) return false;
+  if(["refuse","expire","sans_suite"].includes(workflowStatut(d))) return false;
   return !!(manualSignState(d.manualSign).quoteSigned || d.sign?.statut==="done");
 }
 function dateSignatureDe(d){

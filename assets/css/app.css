@@ -1124,3 +1124,8 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
 .fj-table .fj-actions{position:sticky;right:0;background:var(--surface,#fff);text-align:right;box-shadow:-6px 0 6px -6px rgba(0,0,0,.18);z-index:1;width:1%}
 .fj-boutons{display:flex;flex-direction:column;gap:4px;align-items:stretch}
 .fj-boutons .btn{justify-content:center;white-space:nowrap}
+/* v55.8 — lisibilité du nom du client */
+.fj-table .fj-client{font-size:14px;font-weight:700;color:var(--encre);letter-spacing:.005em}
+.fj-table tr.fj-ligne{background:color-mix(in srgb,var(--fj-c) 7%,transparent)}
+.fj-table tr.fj-ligne td:first-child{box-shadow:inset 5px 0 0 var(--fj-c);padding-left:12px}
+.fj-table td:first-child{min-width:150px}

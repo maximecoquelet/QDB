@@ -378,9 +378,9 @@ function fjVueEncours(){
     <div class="card"><div class="bd">
       ${fjBarreRecherche(filtres)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Dossier · avancement</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Envoi du projet d'acte">Projet</th><th title="Signature des actes">Signature</th><th>Dépôt GTC</th><th>Fin form.</th><th title="Mois de rattachement">Factur.</th><th class="fj-actions"></th></tr></thead>
-        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l);return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}">
-          <td><b>${esc(l.dossier)}</b>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}<div style="margin-top:3px">${fjPastille(e)}</div>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+        <thead><tr><th>Dossier</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Envoi du projet d'acte">Projet</th><th title="Signature des actes">Signature</th><th>Dépôt GTC</th><th>Fin form.</th><th title="Mois de rattachement">Factur.</th><th class="fj-actions"></th></tr></thead>
+        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l);return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}" title="${esc(e.libelle)}">
+          <td><span class="fj-client">${esc(l.dossier)}</span>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
           <td>${fjDt(l.date_projet)}</td><td>${fjDt(l.date_signature)}</td><td>${fjDt(l.date_depot_gtc)}</td><td>${fjDt(l.date_fin_formalite)}</td>
@@ -426,16 +426,42 @@ function fjVueDevisEnvoyes(){
         <tbody>${liste.map(x=>{const j=jours(x.envoi);return `<tr>
           <td>${fjDt(x.envoi)}</td>
           <td>${j==null?`<span class="dim">—</span>`:`<span class="tag ${j>30?"rouge":j>15?"ocre":"gris"}">${j} j</span>`}</td>
-          <td><b>${esc(x.d.client?.raison||"Dossier")}</b></td>
+          <td><span class="fj-client">${esc(x.d.client?.raison||"Dossier")}</span></td>
           <td>${esc(x.d.ref||"—")}</td>
           <td>${esc(intituleDevis(x.d)!=="Devis"?intituleDevis(x.d):(x.m?.titre||""))}</td>
           <td class="r num">${eur(x.ht)}</td>
           <td>${x.yousign?"Yousign":"Manuel"}</td>
-          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-devis="${esc(x.d.id)}">Ouvrir le devis</button></div></td></tr>`;}).join("")||`<tr><td colspan="8"><div class="empty-state"><b>Aucun devis en attente d'acceptation</b></div></td></tr>`}</tbody>
+          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-valider="${esc(x.d.id)}" title="Cocher « Devis signé ou validé » dans le dossier">Devis validé</button><button class="btn sm" data-fj-sans-suite="${esc(x.d.id)}" title="Le client n'a pas donné suite">Sans suite</button><button class="btn sm" data-fj-devis="${esc(x.d.id)}">Ouvrir</button></div></td></tr>`;}).join("")||`<tr><td colspan="8"><div class="empty-state"><b>Aucun devis en attente d'acceptation</b></div></td></tr>`}</tbody>
         <tfoot><tr class="total"><td colspan="5"><b>Total (${liste.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
-      <div class="hint" style="margin-top:8px">Pastille : gris jusqu'à 15 jours d'attente, orange au-delà, rouge après 30 jours.</div>
-    </div></div>`;
+      <div class="hint" style="margin-top:8px">Attente : gris jusqu'à 15 jours, orange au-delà, rouge après 30 jours. « Devis validé » coche « Devis signé ou validé » dans le dossier ; la ligne arrivera dans « Dossiers en cours » au reclassement du dossier.</div>
+    </div></div>
+    ${(()=>{ const ss=fjDevisSansSuite(); return ss.length?`<details class="card" style="margin-top:14px"><summary class="hd" style="cursor:pointer">Devis classés sans suite <span class="tag gris">${ss.length}</span></summary><div class="bd">
+      <table class="synthese-table fj-table"><thead><tr><th>Sans suite le</th><th>Client</th><th>Devis</th><th class="r">Honoraires HT</th><th class="fj-actions"></th></tr></thead><tbody>
+      ${ss.map(x=>`<tr><td>${fjDt(x.d.sansSuite?.date)}</td><td><span class="fj-client">${esc(x.d.client?.raison||"Dossier")}</span></td><td>${esc(x.d.ref||"—")}</td><td class="r num">${eur(x.ht)}</td>
+        <td class="fj-actions"><div class="fj-boutons"><button class="btn sm" data-fj-reactiver="${esc(x.d.id)}" title="Remettre le devis en attente de réponse">Réactiver</button></div></td></tr>`).join("")}
+      </tbody></table></div></details>`:""; })()}`;
+}
+
+function fjDevisSansSuite(){
+  const out=[];
+  for(const d of (st.devis||[])){
+    try{
+      if(!d.sansSuite||isArchivedDevis(d)) continue;
+      const m=modOf(d); if(!fjModeleRetenu(m)) continue;
+      out.push({d,ht:+totaux(d,m).ht||0});
+    }catch(_){}
+  }
+  return out.sort((a,b)=>String(b.d.sansSuite?.date||"").localeCompare(String(a.d.sansSuite?.date||"")));
+}
+
+/* Actions sur un devis depuis la facturation juridique : mêmes règles,
+   même journal et même enregistrement que depuis le dossier lui-même. */
+async function fjSurDevis(id, action){
+  const d=st.devis.find(x=>x.id===id); if(!d) return;
+  const avant=st.id; st.id=id;
+  try{ await action(d); }
+  finally{ st.id=avant; render(); }
 }
 
 function fjVueFactures(){
@@ -452,7 +478,7 @@ function fjVueFactures(){
         <thead><tr><th>Facturation</th><th>Dossier</th><th>Type</th><th>Mission</th><th class="r fj-th-court">Honoraires HT</th>${FJ_DEBOURS.map(([k,lib])=>`<th class="r fj-th-court" title="${esc(lib)}">${esc(FJ_DEBOURS_COURTS[k])}</th>`).join("")}<th class="r fj-th-court">Total débours</th><th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>`<tr>
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
-          <td><b>${esc(l.dossier)}</b>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+          <td><span class="fj-client">${esc(l.dossier)}</span>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${m(l.honoraires)}</td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${m(l[k])}</td>`).join("")}<td class="r num">${fjTotalDebours(l)?eur(fjTotalDebours(l)):`<span class="dim">—</span>`}</td>
           <td class="fj-actions"><div class="fj-boutons"><button class="btn sm" data-fj-debours="${esc(l.id)}">Débours</button><button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></div></td></tr>`).join("")||`<tr><td colspan="${7+FJ_DEBOURS.length}"><div class="empty-state"><b>Aucune ligne facturée</b></div></td></tr>`}</tbody>
@@ -813,6 +839,20 @@ function fjLier(){
   });
   /* Retour sur l'écran : transfert des dossiers validés entre-temps. */
   if(Date.now()-FJ.derniereSync>30000) fjSynchroniser().then(n=>{ if(n){ toast(`${n} dossier(s) reclassé(s) transféré(s) dans les dossiers en cours.`); render(); } });
+  un("[data-fj-valider]",b=>b.onclick=async()=>{
+    const d=st.devis.find(x=>x.id===b.dataset.fjValider); if(!d) return;
+    if(!await askConfirm("Devis validé",`Le devis ${d.ref||""} de ${d.client?.raison||"ce client"} sera marqué « signé ou validé » à la date du jour. Les documents du dossier seront figés, comme depuis le dossier lui-même.`,{confirmLabel:"Valider le devis"})) return;
+    await fjSurDevis(d.id, async()=>{ await ACTS.manualSignStep({dataset:{step:"quoteSigned"},checked:true}); });
+  });
+  un("[data-fj-sans-suite]",b=>b.onclick=async()=>{
+    const d=st.devis.find(x=>x.id===b.dataset.fjSansSuite); if(!d) return;
+    if(!await askConfirm("Devis sans suite",`Le devis ${d.ref||""} de ${d.client?.raison||"ce client"} sera classé « sans suite ». Il quitte la liste des devis envoyés et les relances ; il reste consultable et peut être réactivé.`,{confirmLabel:"Classer sans suite"})) return;
+    await fjSurDevis(d.id, async(x)=>{ x.sansSuite={date:today(),par:actorName()}; x.statut="sans_suite"; logAudit(x,"Devis classé sans suite",""); await saveDev(); toast("Devis classé sans suite."); });
+  });
+  un("[data-fj-reactiver]",b=>b.onclick=async()=>{
+    const d=st.devis.find(x=>x.id===b.dataset.fjReactiver); if(!d) return;
+    await fjSurDevis(d.id, async(x)=>{ delete x.sansSuite; x.statut=workflowStatut(x); logAudit(x,"Devis réactivé (sans suite annulé)",""); await saveDev(); toast("Devis remis en attente de réponse."); });
+  });
   un("[data-fj-devis]",b=>b.onclick=()=>{ st.id=b.dataset.fjDevis; st.view="devis1"; st.tab=rememberedTab(st.id); render(); });
   un("[data-fj-export]",b=>b.onclick=fjExporter);
   un("[data-fj-listes]",b=>b.onclick=fjGererListes);
