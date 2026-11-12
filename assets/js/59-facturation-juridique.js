@@ -244,6 +244,7 @@ const FJ_DEBOURS = [
   ["debours_jal","JAL"],
   ["debours_enregistrement","Enregistrement"]
 ];
+const FJ_DEBOURS_COURTS = { debours_greffe_tva:"Greffe TVA", debours_greffe_hors_tva:"Greffe hors TVA", debours_jal:"JAL", debours_enregistrement:"Enreg." };
 const fjTotalDebours = l => FJ_DEBOURS.reduce((a,[k])=>a+(+l[k]||0),0);
 const FJ_CHAMPS_DATE = [["","— Aucune (à choisir à la main) —"],["date_projet","Envoi du projet d'acte"],["date_signature","Signature des actes"],["date_depot_gtc","Dépôt GTC"],["date_fin_formalite","Fin de formalité"]];
 const FJ_ETAPES_DEFAUT = [
@@ -350,10 +351,10 @@ VIEWS.juridique = () => {
 
 function fjBarreRecherche(extra=""){
   return `<div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">${extra}
-    <input type="search" data-fj-recherche placeholder="Rechercher un dossier, une mission…" value="${esc(FJ.recherche)}" style="min-width:260px;width:auto"></div>`;
+    <input type="search" data-fj-recherche placeholder="Rechercher un dossier, une mission…" value="${esc(FJ.recherche)}" style="width:260px;max-width:100%"></div>`;
 }
 const fjFiltreTexte = l => { const q=normClient(FJ.recherche||""); return !q||normClient(`${l.dossier} ${l.type_operation||""} ${l.mission||""} ${l.commentaires||""}`).includes(q); };
-const fjDt = v => v?dateFR(v):`<span class="dim">—</span>`;
+const fjDt = v => { if(!v) return `<span class="dim">—</span>`; const [a,m,j]=String(v).slice(0,10).split("-"); return `<span title="${esc(dateFR(v))}">${j}/${m}/${String(a).slice(2)}</span>`; };
 
 function fjVueEncours(){
   const s=fjSynthese(), aSuivre=fjDossiersASuivre(), E=fjEtapes();
@@ -377,16 +378,15 @@ function fjVueEncours(){
     <div class="card"><div class="bd">
       ${fjBarreRecherche(filtres)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Dossier</th><th>Avancement</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th>Projet</th><th>Signature</th><th>Dépôt GTC</th><th>Fin formalité</th><th title="Mois de rattachement">Facturation</th><th></th></tr></thead>
+        <thead><tr><th>Dossier · avancement</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Envoi du projet d'acte">Projet</th><th title="Signature des actes">Signature</th><th>Dépôt GTC</th><th>Fin form.</th><th title="Mois de rattachement">Factur.</th><th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>{const e=fjEtapeDe(l);return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}">
-          <td><b>${esc(l.dossier)}</b>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
-          <td>${fjPastille(e)}</td>
+          <td><b>${esc(l.dossier)}</b>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}<div style="margin-top:3px">${fjPastille(e)}</div>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
           <td>${fjDt(l.date_projet)}</td><td>${fjDt(l.date_signature)}</td><td>${fjDt(l.date_depot_gtc)}</td><td>${fjDt(l.date_fin_formalite)}</td>
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
-          <td class="r" style="white-space:nowrap"><button class="btn sm p" data-fj-facturer="${esc(l.id)}">Passer en facturation</button> <button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></td></tr>`;}).join("")||`<tr><td colspan="11"><div class="empty-state"><b>Aucun dossier en cours</b></div></td></tr>`}</tbody>
-        <tfoot><tr class="total"><td colspan="4"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="6"></td></tr></tfoot>
+          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-facturer="${esc(l.id)}" title="Passer en facturation">Facturer</button><button class="btn sm" data-fj-modifier="${esc(l.id)}" title="Modifier la ligne">Modifier</button></div></td></tr>`;}).join("")||`<tr><td colspan="10"><div class="empty-state"><b>Aucun dossier en cours</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="3"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="5"></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
     </div></div>`;
 }
@@ -402,14 +402,14 @@ function fjVueFactures(){
   return `<div class="card"><div class="bd">
       ${fjBarreRecherche(sel)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
-        <thead><tr><th>Facturation</th><th>Dossier</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th>${FJ_DEBOURS.map(([k,lib])=>`<th class="r">${esc(lib)}</th>`).join("")}<th class="r">Total débours</th><th></th></tr></thead>
+        <thead><tr><th>Facturation</th><th>Dossier</th><th>Type</th><th>Mission</th><th class="r fj-th-court">Honoraires HT</th>${FJ_DEBOURS.map(([k,lib])=>`<th class="r fj-th-court" title="${esc(lib)}">${esc(FJ_DEBOURS_COURTS[k])}</th>`).join("")}<th class="r fj-th-court">Total débours</th><th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>`<tr>
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
           <td><b>${esc(l.dossier)}</b>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${m(l.honoraires)}</td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${m(l[k])}</td>`).join("")}<td class="r num">${fjTotalDebours(l)?eur(fjTotalDebours(l)):`<span class="dim">—</span>`}</td>
-          <td class="r" style="white-space:nowrap"><button class="btn sm" data-fj-debours="${esc(l.id)}">Débours</button> <button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></td></tr>`).join("")||`<tr><td colspan="${7+FJ_DEBOURS.length}"><div class="empty-state"><b>Aucune ligne facturée</b></div></td></tr>`}</tbody>
-        <tfoot><tr class="total"><td colspan="4"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(tot("honoraires"))}</b></td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${eur(tot(k))}</td>`).join("")}<td class="r num"><b>${eur(lignes.reduce((t,l)=>t+fjTotalDebours(l),0))}</b></td><td></td></tr></tfoot>
+          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm" data-fj-debours="${esc(l.id)}">Débours</button><button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></div></td></tr>`).join("")||`<tr><td colspan="${7+FJ_DEBOURS.length}"><div class="empty-state"><b>Aucune ligne facturée</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="4"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(tot("honoraires"))}</b></td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${eur(tot(k))}</td>`).join("")}<td class="r num"><b>${eur(lignes.reduce((t,l)=>t+fjTotalDebours(l),0))}</b></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
     </div></div>`;
 }

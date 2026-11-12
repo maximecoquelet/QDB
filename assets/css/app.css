@@ -1114,3 +1114,13 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
 .fj-point{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--fj-c);margin-right:2px}
 .fj-table tr.fj-ligne td:first-child{box-shadow:inset 4px 0 0 var(--fj-c)}
 .fj-table tr.fj-ligne{background:color-mix(in srgb,var(--fj-c) 6%,transparent)}
+/* v55.5 — tableaux de la facturation juridique : compacts, sans défilement horizontal sur un écran courant */
+.fj-table{font-size:12.5px}
+.fj-table th,.fj-table td{padding-left:5px;padding-right:5px}
+.fj-table th{white-space:nowrap}
+.fj-table th.fj-th-court{white-space:normal;line-height:1.2;min-width:58px}
+.fj-table td.num{white-space:nowrap}
+.fj-table td:nth-child(2),.fj-table td:nth-child(3){min-width:85px}
+.fj-table .fj-actions{position:sticky;right:0;background:var(--surface,#fff);text-align:right;box-shadow:-6px 0 6px -6px rgba(0,0,0,.18);z-index:1;width:1%}
+.fj-boutons{display:flex;flex-direction:column;gap:4px;align-items:stretch}
+.fj-boutons .btn{justify-content:center;white-space:nowrap}
