@@ -87,20 +87,30 @@ grant select, insert, update, delete on public.facturation_juridique to service_
 alter table public.facturation_juridique
   add column if not exists ecarte boolean not null default false;
 
--- Un dossier de devis ne donne lieu qu'à une ligne de suivi, même si deux
--- onglets ouverts tentent le transfert au même instant.
-do $unicite$
-begin
-  if not exists (
-    select 1 from public.facturation_juridique
-     where devis_id is not null group by devis_id having count(*) > 1
-  ) then
-    execute 'create unique index if not exists fj_devis_unique on public.facturation_juridique (devis_id) where devis_id is not null';
-  else
-    raise notice 'Plusieurs lignes pointent vers le même dossier : index d''unicité non créé. Dédoublonner puis relancer le script.';
-  end if;
-end
-$unicite$;
+-- Un même dossier de devis peut être scindé à la main en plusieurs lignes
+-- (une par opération) : pas d'unicité sur devis_id.
+drop index if exists public.fj_devis_unique;
+
+
+-- Réglages du suivi : liste fermée des types d'opération, modèles de devis
+-- dont les dossiers reclassés sont transférés. Même cloisonnement.
+create table if not exists public.facturation_juridique_reglages (
+  cle         text primary key,
+  valeur      jsonb not null,
+  updated_at  timestamptz not null default now()
+);
+
+alter table public.facturation_juridique_reglages enable row level security;
+
+drop policy if exists fj_reglages_acces on public.facturation_juridique_reglages;
+create policy fj_reglages_acces on public.facturation_juridique_reglages
+  for all to authenticated
+  using (public.a_acces_facturation_juridique())
+  with check (public.a_acces_facturation_juridique());
+
+revoke all on public.facturation_juridique_reglages from anon;
+grant select, insert, update, delete on public.facturation_juridique_reglages to authenticated, service_role;
+
 
 create or replace function public.fj_horodatage()
 returns trigger language plpgsql as $$
