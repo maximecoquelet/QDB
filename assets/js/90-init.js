@@ -1,3 +1,8 @@
+/* v55.9 — application installable : service de mise en cache (réseau
+   d'abord ; aucune donnée de dossier n'est conservée sur l'appareil). */
+if("serviceWorker" in navigator && (location.protocol==="https:"||location.hostname==="localhost")){
+  window.addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}); });
+}
 /* ============================================================= départ */
 (async function init(){
   if(!SB){ renderLogin("Bibliothèque Supabase indisponible."); return; }

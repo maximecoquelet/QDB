@@ -98,6 +98,11 @@ alter table public.facturation_juridique
   add column if not exists debours_jal                numeric(12,2),
   add column if not exists debours_enregistrement     numeric(12,2);
 
+-- v55.9 — Rattachement à la fiche client de l'outil (choisi à la main ;
+-- à défaut, l'application le déduit du devis lié ou du nom exact).
+alter table public.facturation_juridique
+  add column if not exists client_id text;
+
 do $etat$
 begin
   if not exists (select 1 from pg_constraint where conname = 'fj_etat_valide') then

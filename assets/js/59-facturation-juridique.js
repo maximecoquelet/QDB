@@ -24,6 +24,7 @@ const FJ = {
   tri: "facturation",
   colonneEcarte: false, /* script v55.1 passé : les retraits sont conservés en base */
   colonneEtat: false,   /* script v55.4 passé : état, avancement, débours */
+  colonneClient: false, /* script v55.9 passé : rattachement à la fiche client */
   reglagesEnBase: false,
   reglages: { types: null, modeles: null, familles: null, etapes: null },  /* null = valeurs par défaut */
   exercice: null,      /* année de début de l'exercice affiché (juin → mai) */
@@ -53,6 +54,7 @@ async function fjInitialiser(){
     FJ.acces=true;
     try{ const {error:e2}=await SB.from("facturation_juridique").select("ecarte").limit(1); FJ.colonneEcarte=!e2; }catch(_){ FJ.colonneEcarte=false; }
     try{ const {error:e3}=await SB.from("facturation_juridique").select("etat,avancement,debours_jal").limit(1); FJ.colonneEtat=!e3; }catch(_){ FJ.colonneEtat=false; }
+    try{ const {error:e4}=await SB.from("facturation_juridique").select("client_id").limit(1); FJ.colonneClient=!e4; }catch(_){ FJ.colonneClient=false; }
     await fjChargerReglages();
     await fjCharger();
     const n=await fjSynchroniser();
@@ -144,6 +146,7 @@ function fjLigneVersBase(l){
     mois_facturation:mois(l.mois_facturation), commentaires:t(l.commentaires),
     devis_id:t(l.devis_id),
     ...(l.ecarte===true?{ecarte:true}:{}),
+    ...(FJ.colonneClient?{client_id:t(l.client_id)}:{}),
     ...(FJ.colonneEtat?{
       etat:l.etat==="facture"?"facture":"encours",
       avancement:t(l.avancement),
@@ -330,22 +333,73 @@ function fjDepuisDossier(d){
            honoraires:Math.round((+t.ht||0)*100)/100, devis_id:d.id, etat:"encours" };
 }
 
+/* =====================================================================
+   v55.9 — FICHE CLIENT
+   Fiche choisie à la main sur la ligne ; à défaut, celle du devis lié ;
+   à défaut, la seule fiche dont la dénomination est exactement le nom du
+   dossier. Aucun rattachement approximatif.
+   ===================================================================== */
+function fjClientDe(l){
+  const cl=st.clients||[];
+  if(l.client_id){ const c=cl.find(x=>x.id===l.client_id); if(c) return c; }
+  if(l.devis_id){ const d=(st.devis||[]).find(x=>x.id===l.devis_id); const c=d&&clientMasterOf(d); if(c) return c; }
+  const n=normClient(l.dossier||""); if(!n) return null;
+  const memes=cl.filter(c=>normClient(c.raison||"")===n);
+  return memes.length===1?memes[0]:null;
+}
+function fjNomClient(l){
+  const c=fjClientDe(l);
+  return c?`<button type="button" class="fj-client fj-lien" data-fj-client="${esc(c.id)}" title="Ouvrir la fiche client">${esc(l.dossier)}</button>`:`<span class="fj-client">${esc(l.dossier)}</span>`;
+}
+
+/* =====================================================================
+   v55.9 — À FACTURER : formalités terminées, pas encore facturées.
+   Une ligne y figure dès que la fin de formalité est saisie, ou que son
+   avancement est la dernière étape du parcours.
+   ===================================================================== */
+function fjAFacturer(){
+  const E=fjEtapes(), derniere=E[E.length-1]?.id;
+  return fjEncours().filter(l=>l.date_fin_formalite||fjEtapeDe(l).id===derniere);
+}
+function fjVueAFacturer(){
+  const auj=new Date(today()+"T00:00:00");
+  const jours=iso=>iso?Math.round((auj-new Date(String(iso).slice(0,10)+"T00:00:00"))/86400000):null;
+  const lignes=fjAFacturer().filter(fjFiltreTexte).sort((a,b)=>String(a.date_fin_formalite||"9").localeCompare(String(b.date_fin_formalite||"9")));
+  const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
+  return `<div class="card"><div class="bd">
+      ${fjBarreRecherche(`<div class="hint" style="margin:0">Formalités terminées, pas encore passées en facturation — de la plus ancienne à la plus récente.</div>`)}
+      <div style="overflow-x:auto"><table class="synthese-table fj-table">
+        <thead><tr><th>Dossier</th><th>Fin form.</th><th>Depuis</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Mois de rattachement prévu">Factur.</th><th class="fj-actions"></th></tr></thead>
+        <tbody>${lignes.map(l=>{const j=jours(l.date_fin_formalite);return `<tr>
+          <td>${fjNomClient(l)}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+          <td>${fjDt(l.date_fin_formalite)}</td>
+          <td>${j==null?`<span class="dim">—</span>`:`<span class="tag ${j>30?"rouge":j>15?"ocre":"gris"}">${j} j</span>`}</td>
+          <td>${esc(l.type_operation||"")}</td><td>${esc(l.mission||"")}</td>
+          <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
+          <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
+          <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-facturer="${esc(l.id)}">Facturer</button><button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></div></td></tr>`;}).join("")||`<tr><td colspan="8"><div class="empty-state"><b>Rien à facturer</b><small>Toutes les formalités terminées ont été passées en facturation.</small></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="5"><b>Total à facturer (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td></td><td class="fj-actions"></td></tr></tfoot>
+      </table></div>
+      <div class="hint" style="margin-top:8px">« Depuis » : jours écoulés depuis la fin de formalité — gris jusqu'à 15 jours, orange au-delà, rouge après 30 jours.</div>
+    </div></div>`;
+}
+
 VIEWS.juridique = () => {
   if(!FJ.acces) return `<div class="top"><h1>Facturation juridique</h1></div><div class="wrap"><div class="notice">Accès non autorisé.</div></div>`;
-  const onglet=["encours","envoyes","factures","stats"].includes(FJ.onglet)?FJ.onglet:"encours";
-  const nb={encours:fjEncours().length,factures:fjFactures().length,envoyes:fjDevisEnvoyes().length};
+  const onglet=["encours","afacturer","envoyes","factures","stats"].includes(FJ.onglet)?FJ.onglet:"encours";
+  const nb={encours:fjEncours().length,factures:fjFactures().length,envoyes:fjDevisEnvoyes().length,afacturer:fjAFacturer().length};
   const tab=(k,l,n)=>`<button class="vue-onglet ${onglet===k?"on":""}" data-fj-onglet="${k}">${l}${n!=null?` <span class="vue-compte">${n}</span>`:""}</button>`;
   const manque=!(FJ.colonneEcarte&&FJ.reglagesEnBase&&FJ.colonneEtat);
   return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${manque?` · <b>relancer le script v55 dans Supabase (mise à jour)</b>`:""}</span><span class="spacer"></span>
-    <button class="btn" data-fj-listes>Paramètres</button>
-    <button class="btn" data-fj-import>Importer</button>
-    <button class="btn" data-fj-export>Exporter en CSV</button>
+    <button class="btn fj-bureau" data-fj-listes>Paramètres</button>
+    <button class="btn fj-bureau" data-fj-import>Importer</button>
+    <button class="btn fj-bureau" data-fj-export>Exporter en CSV</button>
     <button class="btn p" data-fj-nouveau>Nouvelle ligne</button>
     <input type="file" data-fj-fichier accept=".csv,.txt,.xlsx,.xls" hidden></div>
-  <div class="wrap">
+  <div class="wrap fj-page">
     ${FJ.erreur?`<div class="notice rouge" style="margin-bottom:12px">${esc(FJ.erreur)}</div>`:""}
-    <div class="vues-barre" style="margin-bottom:14px">${tab("encours","Dossiers en cours",nb.encours)}${tab("envoyes","Devis envoyés",nb.envoyes)}${tab("factures","Facturés",nb.factures)}${tab("stats","Statistiques")}</div>
-    ${onglet==="stats"?fjTableauDeBordHTML():onglet==="factures"?fjVueFactures():onglet==="envoyes"?fjVueDevisEnvoyes():fjVueEncours()}
+    <div class="vues-barre" style="margin-bottom:14px">${tab("encours","Dossiers en cours",nb.encours)}${tab("afacturer","À facturer",nb.afacturer)}${tab("envoyes","Devis envoyés",nb.envoyes)}${tab("factures","Facturés",nb.factures)}${tab("stats","Statistiques")}</div>
+    ${onglet==="stats"?fjTableauDeBordHTML():onglet==="factures"?fjVueFactures():onglet==="envoyes"?fjVueDevisEnvoyes():onglet==="afacturer"?fjVueAFacturer():fjVueEncours()}
   </div>`;
 };
 
@@ -380,7 +434,7 @@ function fjVueEncours(){
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
         <thead><tr><th>Dossier</th><th>Type</th><th>Mission</th><th class="r">Honoraires HT</th><th title="Envoi du projet d'acte">Projet</th><th title="Signature des actes">Signature</th><th>Dépôt GTC</th><th>Fin form.</th><th title="Mois de rattachement">Factur.</th><th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>{const e=fjEtapeDe(l);return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}" title="${esc(e.libelle)}">
-          <td><span class="fj-client">${esc(l.dossier)}</span>${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+          <td>${fjNomClient(l)}${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
           <td>${fjDt(l.date_projet)}</td><td>${fjDt(l.date_signature)}</td><td>${fjDt(l.date_depot_gtc)}</td><td>${fjDt(l.date_fin_formalite)}</td>
@@ -478,7 +532,7 @@ function fjVueFactures(){
         <thead><tr><th>Facturation</th><th>Dossier</th><th>Type</th><th>Mission</th><th class="r fj-th-court">Honoraires HT</th>${FJ_DEBOURS.map(([k,lib])=>`<th class="r fj-th-court" title="${esc(lib)}">${esc(FJ_DEBOURS_COURTS[k])}</th>`).join("")}<th class="r fj-th-court">Total débours</th><th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>`<tr>
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
-          <td><span class="fj-client">${esc(l.dossier)}</span>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
+          <td>${fjNomClient(l)}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${m(l.honoraires)}</td>${FJ_DEBOURS.map(([k])=>`<td class="r num">${m(l[k])}</td>`).join("")}<td class="r num">${fjTotalDebours(l)?eur(fjTotalDebours(l)):`<span class="dim">—</span>`}</td>
           <td class="fj-actions"><div class="fj-boutons"><button class="btn sm" data-fj-debours="${esc(l.id)}">Débours</button><button class="btn sm" data-fj-modifier="${esc(l.id)}">Modifier</button></div></td></tr>`).join("")||`<tr><td colspan="${7+FJ_DEBOURS.length}"><div class="empty-state"><b>Aucune ligne facturée</b></div></td></tr>`}</tbody>
@@ -540,6 +594,7 @@ function fjFormulaire(ligne, titre){
         ${champ("date_depot_gtc","Dépôt GTC","date")}
         ${champ("date_fin_formalite","Fin de formalité","date")}
         ${champ("mois_facturation","Facturation — mois de rattachement","month",'placeholder="mm/aaaa"')}
+        ${FJ.colonneClient?`<label class="f"><span>Fiche client</span><select data-fjf="client_id"><option value="">${(()=>{const c=fjClientDe({...l,client_id:""});return c?`Automatique : ${esc(c.raison||"")}`:"— Aucune —";})()}</option>${(st.clients||[]).filter(c=>!c.archive||c.id===l.client_id).slice().sort((a,b)=>String(a.raison||"").localeCompare(String(b.raison||""),"fr")).map(c=>`<option value="${esc(c.id)}" ${l.client_id===c.id?"selected":""}>${esc(c.raison||"Client")}${c.siren?` · ${esc(c.siren)}`:""}</option>`).join("")}</select></label>`:""}
         <label class="f"><span>Dossier de l'outil de devis</span><select data-fjf="devis_id"><option value="">— Aucun —</option>${(st.devis||[]).filter(d=>!isArchivedDevis(d)||d.id===l.devis_id).map(d=>`<option value="${esc(d.id)}" ${l.devis_id===d.id?"selected":""}>${esc((d.client?.raison||"Dossier")+(d.ref?" · "+d.ref:""))}</option>`).join("")}</select></label>
       </div>
       <fieldset data-fj-bloc-debours style="margin-top:12px;border:1px solid var(--reglure);border-radius:8px;padding:10px 12px;${l.etat==="facture"?"":"display:none"}"><legend style="padding:0 6px"><b>Débours</b></legend>
@@ -821,8 +876,19 @@ function fjExporter(){
 /* ----------------------------------------------------- liaisons écran */
 function fjLier(){
   if(st.view!=="juridique"||!FJ.acces) return;
+  /* Sur téléphone, chaque ligne devient une fiche : chaque cellule reçoit
+     le libellé de sa colonne, et les cellules vides sont masquées. */
+  document.querySelectorAll(".fj-table").forEach(t=>{
+    const titres=[...t.querySelectorAll("thead th")].map(th=>th.textContent.trim());
+    t.querySelectorAll("tbody tr").forEach(tr=>[...tr.cells].forEach(td=>{
+      if(td.colSpan>1) return;
+      td.dataset.l=titres[td.cellIndex]||"";
+      if(td.textContent.trim()==="—") td.classList.add("fj-vide");
+    }));
+  });
   const un=(sel,f)=>document.querySelectorAll(sel).forEach(f);
   un("[data-fj-onglet]",b=>b.onclick=()=>{ FJ.onglet=b.dataset.fjOnglet; render(); });
+  un("[data-fj-client]",b=>b.onclick=e=>{ e.stopPropagation(); st.clientViewId=b.dataset.fjClient; st.view="client1"; render(); });
   un("[data-fj-etape]",b=>b.onclick=()=>{ FJ.filtreEtape=b.dataset.fjEtape; render(); });
   un("[data-fj-exercice-factures]",x=>x.onchange=()=>{ FJ.exerciceFactures=x.value==="tous"?"tous":+x.value; render(); });
   un("[data-fj-recherche]",i=>i.oninput=()=>{ FJ.recherche=i.value; const pos=i.selectionStart; render(); const n=document.querySelector("[data-fj-recherche]"); if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(_){} } });

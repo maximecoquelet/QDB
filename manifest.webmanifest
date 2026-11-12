@@ -1,0 +1,17 @@
+{
+  "name": "SERRE — Grille & Mission",
+  "short_name": "SERRE",
+  "description": "Devis, lettres de mission, signatures et facturation juridique du cabinet.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F7F5F2",
+  "theme_color": "#282624",
+  "icons": [
+    { "src": "assets/icons/icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icons/icone-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/icons/icone-masquable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
