@@ -1140,7 +1140,7 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
   .fj-page .kpi-card .kpi-help{font-size:11px}
   .fj-page .vues-barre{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
   .fj-page .vue-onglet{flex:0 0 auto}
-  .fj-page input[data-fj-recherche]{width:100% !important}
+  .fj-page input[data-fj-recherche],.fj-page input[data-enr-recherche]{width:100% !important}
   .fj-table{font-size:14px}
   .fj-table thead{display:none}
   .fj-table,.fj-table tbody,.fj-table tfoot,.fj-table tr,.fj-table td{display:block;width:100%}
@@ -1205,8 +1205,8 @@ input[type=number].ca-frais-champ:focus{outline:2px solid var(--vert);outline-of
 .fj-indicateurs[open]>summary::before{transform:rotate(90deg)}
 
 /* Champ de recherche harmonisé */
-.fj-page input[data-fj-recherche]{height:36px;padding:0 12px 0 34px;border:1px solid var(--reglure-f);border-radius:9px;background:var(--surface,#fff) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 20 20' fill='none' stroke='%23888' stroke-width='1.8'%3E%3Ccircle cx='8.5' cy='8.5' r='5.5'/%3E%3Cpath d='m13 13 4 4'/%3E%3C/svg%3E") no-repeat 11px center;font:inherit;font-size:13.5px;color:var(--encre)}
-.fj-page input[data-fj-recherche]:focus{outline:none;border-color:var(--vert);box-shadow:0 0 0 3px color-mix(in srgb,var(--vert) 18%,transparent)}
+.fj-page input[data-fj-recherche],.fj-page input[data-enr-recherche]{height:36px;padding:0 12px 0 34px;border:1px solid var(--reglure-f);border-radius:9px;background:var(--surface,#fff) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 20 20' fill='none' stroke='%23888' stroke-width='1.8'%3E%3Ccircle cx='8.5' cy='8.5' r='5.5'/%3E%3Cpath d='m13 13 4 4'/%3E%3C/svg%3E") no-repeat 11px center;font:inherit;font-size:13.5px;color:var(--encre)}
+.fj-page input[data-fj-recherche]:focus,.fj-page input[data-enr-recherche]:focus{outline:none;border-color:var(--vert);box-shadow:0 0 0 3px color-mix(in srgb,var(--vert) 18%,transparent)}
 
 /* Graphique des statistiques */
 .fj-graph-cadre{position:relative;--fj-g-n:#D94613;--fj-g-n1:#4F79B5}
@@ -1240,3 +1240,9 @@ body.theme-dark .fj-table .fj-actions{background:var(--surface)}
 .fj-table tbody tr.fj-cliquable:hover td{background-image:linear-gradient(color-mix(in srgb,var(--encre) 4%,transparent),color-mix(in srgb,var(--encre) 4%,transparent))}
 .fj-table tbody tr.fj-cliquable:focus-visible{outline:2px solid var(--vert);outline-offset:-2px}
 .fj-table tr.fj-cliquable td.fj-actions{cursor:default}
+/* v57 — sous-onglets du menu Juridique */
+.nav button.on-parent{color:#fff}
+.nav button.nav-sub{padding:6px 10px 6px 36px;font-size:13px;color:#AEB8B2}
+.nav button.nav-sub::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.55;margin-right:2px;flex:0 0 5px}
+.nav button.nav-sub.on{color:#fff}
+.enr-table td:nth-child(2){min-width:120px}

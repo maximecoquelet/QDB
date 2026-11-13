@@ -1,5 +1,5 @@
 /* ============================================================== rendu */
-const PRIMARY_NAV=[["home","Accueil","home"],["devis","Portefeuille","portfolio"],["ca","Chiffre d'affaires","euro"],["juridique","Facturation juridique","balance"],["clients","Clients","clients"],["notifications","Notifications","bell"],["nouveau","Nouveau dossier","plus"]];
+const PRIMARY_NAV=[["home","Accueil","home"],["devis","Portefeuille","portfolio"],["ca","Chiffre d'affaires","euro"],["juridique","Juridique","balance"],["clients","Clients","clients"],["notifications","Notifications","bell"],["nouveau","Nouveau dossier","plus"]];
 const ADMIN_NAV=[["modeles","Modèles de devis","models"],["lettres","Lettres de mission","doc"],["cabinet","Identité du cabinet","building"],["yousign","Signature Yousign","signature"],["outils","Outils internes","health"],["reglages","Réglages","settings"]];
 const ADMIN_VIEWS=new Set(ADMIN_NAV.map(x=>x[0]));
 const VIEWS = {};
@@ -273,6 +273,18 @@ function contextBarHTML(d){
   return `<div class="context-bar"><span class="context-label">${esc(d.client?.raison||"Dossier")} · ${esc(TABS[idx]?.[1]||"")}</span>${actions}</div>`;
 }
 
+/* v57 — menu « Juridique » : deux sous-onglets, selon les accès du compte. */
+function navJuridique(){
+  const s=[];
+  if(typeof FJ!=="undefined"&&FJ.acces) s.push(["juridique","Facturation"]);
+  if(typeof ENR!=="undefined"&&ENR.acces) s.push(["enregistrements","Enregistrements"]);
+  return s;
+}
+function navJuridiqueHTML(libelle,ico){
+  const s=navJuridique(), actif=s.some(([v])=>v===st.view);
+  return `<button data-nav="${s[0][0]}" class="${actif?"on-parent":""}">${uiIcon(ico)}<span class="nav-label">${libelle}</span></button>`
+    +s.map(([v,l])=>`<button data-nav="${v}" class="nav-sub ${st.view===v?"on":""}"><span class="nav-label">${l}</span></button>`).join("");
+}
 function render(){
   const oldY=window.scrollY||document.documentElement.scrollTop||0;
   if(!canView(st.view)) st.view="devis";
@@ -290,7 +302,7 @@ function render(){
     <div class="brand"><div class="brandmark">${brandMarkHTML()}</div><span class="brand-caption">${esc(brandData().subtitle)} · ${esc(st.cab.nom||"Cabinet")}</span></div>
     <div class="rail-quick"><button data-global-search>${uiIcon("search")}<span class="nav-label">Recherche globale</span><span class="rail-shortcut">Ctrl K</span></button></div>
     <nav class="nav">
-      ${PRIMARY_NAV.filter(([v])=>v!=="juridique"||(typeof FJ!=="undefined"&&FJ.acces)).map(([v,l,ico])=>`<button data-nav="${v}" class="${st.view===v?"on":""}">${uiIcon(ico)}<span class="nav-label">${l}</span>${(()=>{const n=v==="home"?dossiersARelancer().length:v==="notifications"?notificationsParDossier().length:0;return n?`<span class="nav-badge">${Math.min(99,n)}</span>`:"";})()}</button>`).join("")}
+      ${PRIMARY_NAV.filter(([v])=>v!=="juridique"||navJuridique().length).map(([v,l,ico])=>v==="juridique"?navJuridiqueHTML(l,ico):`<button data-nav="${v}" class="${st.view===v?"on":""}">${uiIcon(ico)}<span class="nav-label">${l}</span>${(()=>{const n=v==="home"?dossiersARelancer().length:v==="notifications"?notificationsParDossier().length:0;return n?`<span class="nav-badge">${Math.min(99,n)}</span>`:"";})()}</button>`).join("")}
       ${(()=>{
         /* v49 : le rail n'épinglait qu'un dossier. On travaille rarement
            sur un seul : les quatre derniers ouverts restent à portée. */
@@ -569,6 +581,7 @@ function bind(){
   document.querySelectorAll("[data-quest-detail]").forEach(b=>b.onchange=()=>{ st.questDetail=!!b.checked; render(); });
   document.querySelectorAll("[data-reglages-rub]").forEach(b=>b.onclick=()=>{ st.reglagesRub=b.dataset.reglagesRub; render(); });
   if(typeof fjLier==="function") fjLier();
+  if(typeof enrLier==="function") enrLier();
   document.querySelectorAll("[data-ca-annee]").forEach(sel=>sel.onchange=()=>{ st.caAnnee=sel.value; render(); });
   document.querySelectorAll("[data-ca-liste]").forEach(el=>el.ontoggle=()=>{ st.caListeOuverte=el.open; });
   /* v53.6 : retraitement des frais et débours. Il porte sur le dossier

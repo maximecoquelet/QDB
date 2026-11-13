@@ -430,7 +430,7 @@ async function loadSupabaseAccess(){
     SB_PROFILES=[SB_PROFILE];
   }
 }
-function canView(v){ if(v==="juridique") return typeof FJ!=="undefined"&&FJ.acces; if(["modeles","lettres"].includes(v)) return canRole("manager"); if(["cabinet","yousign","outils","reglages"].includes(v)) return canRole("admin"); return true; }
+function canView(v){ if(v==="juridique") return typeof FJ!=="undefined"&&FJ.acces; if(v==="enregistrements") return typeof ENR!=="undefined"&&ENR.acces; if(["modeles","lettres"].includes(v)) return canRole("manager"); if(["cabinet","yousign","outils","reglages"].includes(v)) return canRole("admin"); return true; }
 /* =====================================================================
    v49 — L'INSTANTANÉ ET LE VERROU SONT DEUX CHOSES DIFFÉRENTES
    ---------------------------------------------------------------------

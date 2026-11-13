@@ -670,7 +670,7 @@ function fjFormulaire(ligne, titre){
         <div class="grid g2">${FJ_DEBOURS.map(([k,lib])=>champ(k,lib+" (€)","number",'step="0.01" min="0"')).join("")}</div></fieldset>
       <label class="f" style="margin-top:12px"><span>Commentaires</span><textarea data-fjf="commentaires">${esc(l.commentaires||"")}</textarea></label>
       </div>
-      <div class="modal-actions">${l.id?`<button class="btn" data-fj-suppr style="color:var(--rouge)">Supprimer</button><button class="btn" data-fj-scinder style="margin-right:auto" title="Créer une seconde ligne pour le même dossier (une ligne par opération)">Dupliquer la ligne</button>`:""}<button class="btn" data-no>Annuler</button><button class="btn p" data-yes>Enregistrer</button></div></div>`;
+      <div class="modal-actions">${l.id?`<button class="btn" data-fj-suppr style="color:var(--rouge)">Supprimer</button><button class="btn" data-fj-scinder title="Créer une seconde ligne pour le même dossier (une ligne par opération)">Dupliquer la ligne</button>${typeof ENR!=="undefined"&&ENR.acces?`<button class="btn" data-fj-creer-enr style="margin-right:auto" title="Créer l'enregistrement aux impôts de ce dossier">${typeof enrLiesA==="function"&&enrLiesA(l.id).length?`Enregistrement (${enrLiesA(l.id).length}) +`:"Créer l'enregistrement"}</button>`:`<span style="margin-right:auto"></span>`}`:""}<button class="btn" data-no>Annuler</button><button class="btn p" data-yes>Enregistrer</button></div></div>`;
     const lire=()=>m.querySelectorAll("[data-fjf]").forEach(el=>{ l[el.dataset.fjf]=el.value; });
     const fin=v=>{ m.remove(); resolve(v); };
     m.querySelector("[data-fjf='etat']").onchange=e=>{ m.querySelector("[data-fj-bloc-debours]").style.display=e.target.value==="facture"?"":"none"; };
@@ -679,6 +679,7 @@ function fjFormulaire(ligne, titre){
     m.querySelector("[data-yes]").onclick=()=>{ lire(); if(l.etat==="facture"&&!l.mois_facturation){ toast("Indiquez le mois de rattachement de la facturation.",true); return; } fin(l); };
     const sup=m.querySelector("[data-fj-suppr]"); if(sup) sup.onclick=()=>fin({...l,__supprimer:true});
     const sc=m.querySelector("[data-fj-scinder]"); if(sc) sc.onclick=()=>{ lire(); fin({...l,__scinder:true}); };
+    const ce=m.querySelector("[data-fj-creer-enr]"); if(ce) ce.onclick=()=>{ fin(null); enrEditer({dossier:l.dossier,fj_id:l.id,client_id:l.client_id||"",motif:l.mission||l.type_operation||""},"Nouvel enregistrement"); };
     document.body.appendChild(m); setTimeout(()=>m.querySelector("[data-fjf='dossier']")?.focus(),20);
   });
 }
@@ -707,13 +708,15 @@ async function fjEditer(ligne,titre){
    rejoint l'onglet « Facturés ». Sert aussi à modifier les débours. */
 function fjSaisieFacturation(l, passage){
   const m=document.createElement("div"); m.className="modal modal-confirm fj-modal";
-  const v=k=>l[k]??"";
+  /* v57 : droits des enregistrements liés reportés dans le débours « Enregistrement » s'il est vide. */
+  const droits=typeof enrDroitsLies==="function"?enrDroitsLies(l.id):0, nbEnr=typeof enrLiesA==="function"?enrLiesA(l.id).length:0;
+  const v=k=>(k==="debours_enregistrement"&&(l[k]==null||l[k]==="")&&droits)?droits:(l[k]??"");
   m.innerHTML=`<div class="box" style="max-width:560px"><div class="modal-titlebar"><h2>${passage?"Passer en facturation":"Débours"} — ${esc(l.dossier)}</h2><button class="modal-x" type="button">×</button></div>
     <div class="modal-content"><div class="grid g2">
       <label class="f"><span>Mois de rattachement</span><input type="month" data-fjs="mois_facturation" value="${esc(String(l.mois_facturation||(passage?today():"")).slice(0,7))}" placeholder="mm/aaaa"></label>
       <label class="f"><span>Honoraires HT (€)</span><input type="number" step="0.01" min="0" data-fjs="honoraires" value="${esc(v("honoraires"))}"></label>
       ${FJ_DEBOURS.map(([k,lib])=>`<label class="f"><span>${esc(lib)} (€)</span><input type="number" step="0.01" min="0" data-fjs="${k}" value="${esc(v(k))}"></label>`).join("")}
-    </div><div class="hint" style="margin-top:8px">Les débours peuvent être complétés plus tard depuis l'onglet « Facturés ».</div></div>
+    </div>${nbEnr?`<div class="hint" style="margin-top:8px">Enregistrement : ${nbEnr} acte(s) lié(s) dans Juridique › Enregistrements, ${eur(droits)} de droits${(l.debours_enregistrement==null||l.debours_enregistrement==="")?" — montant reporté ci-dessus":""}.</div>`:""}<div class="hint" style="margin-top:8px">Les débours peuvent être complétés plus tard depuis l'onglet « Facturés ».</div></div>
     <div class="modal-actions"><button class="btn" data-no>Annuler</button><button class="btn p" data-yes>${passage?"Passer en facturation":"Enregistrer"}</button></div></div>`;
   const fermer=()=>m.remove();
   m.querySelector(".modal-x").onclick=fermer; m.querySelector("[data-no]").onclick=fermer;
@@ -1029,10 +1032,9 @@ if(!window.__fjClavier){
 }
 
 /* ----------------------------------------------------- liaisons écran */
-function fjLier(){
-  if(st.view!=="juridique"||!FJ.acces) return;
-  /* Sur téléphone, chaque ligne devient une fiche : chaque cellule reçoit
-     le libellé de sa colonne, et les cellules vides sont masquées. */
+/* Sur téléphone, chaque ligne devient une fiche : chaque cellule reçoit le
+   libellé de sa colonne, et les cellules vides sont masquées. */
+function fjEtiqueterTables(){
   document.querySelectorAll(".fj-table").forEach(t=>{
     const titres=[...t.querySelectorAll("thead th")].map(th=>{ const c=th.cloneNode(true); c.querySelectorAll(".fj-fleche").forEach(x=>x.remove()); return c.textContent.trim(); });
     t.querySelectorAll("tbody tr").forEach(tr=>[...tr.cells].forEach(td=>{
@@ -1041,6 +1043,11 @@ function fjLier(){
       if(td.textContent.trim()==="—") td.classList.add("fj-vide");
     }));
   });
+}
+
+function fjLier(){
+  if(st.view!=="juridique"||!FJ.acces) return;
+  fjEtiqueterTables();
   const un=(sel,f)=>document.querySelectorAll(sel).forEach(f);
   un("[data-fj-onglet]",b=>b.onclick=()=>{ FJ.onglet=b.dataset.fjOnglet; render(); });
   /* v56.1 : un clic sur la ligne ouvre sa modification, comme « Modifier ».
