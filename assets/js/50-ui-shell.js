@@ -580,6 +580,7 @@ function bind(){
   document.querySelectorAll("[data-quest-filtre]").forEach(b=>b.onclick=()=>{ st.questFiltre=b.dataset.questFiltre||""; render(); });
   document.querySelectorAll("[data-quest-detail]").forEach(b=>b.onchange=()=>{ st.questDetail=!!b.checked; render(); });
   document.querySelectorAll("[data-reglages-rub]").forEach(b=>b.onclick=()=>{ st.reglagesRub=b.dataset.reglagesRub; render(); });
+  if(typeof fjEtiqueterTables==="function") fjEtiqueterTables();
   if(typeof fjLier==="function") fjLier();
   if(typeof enrLier==="function") enrLier();
   if(typeof teamsLier==="function") teamsLier();

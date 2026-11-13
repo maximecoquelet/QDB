@@ -1250,3 +1250,58 @@ body.theme-dark .fj-table .fj-actions{background:var(--surface)}
 .enr-mode{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--reglure);color:var(--encre)}
 .enr-mode-courriel{background:color-mix(in srgb,#3B82C4 10%,transparent);border-color:color-mix(in srgb,#3B82C4 40%,transparent)}
 .enr-mode-papier{background:color-mix(in srgb,#8A6D3B 10%,transparent);border-color:color-mix(in srgb,#8A6D3B 40%,transparent)}
+
+/* =====================================================================
+   v58.5 — TÉLÉPHONE : revue complète de l'affichage
+   ===================================================================== */
+@media (max-width:760px){
+  /* Indicateurs : deux par ligne, plus compacts */
+  .kpi-grid{grid-template-columns:1fr 1fr!important;gap:8px}
+  .kpi-card{min-height:0}
+  .kpi-card .kpi-value{font-size:20px}
+  .kpi-card .kpi-help{font-size:11px;line-height:1.35}
+
+  /* En-tête d'un dossier : titre sur toute la largeur, éléments en dessous */
+  .top.top-dossier{row-gap:8px}
+  .top-dossier .case-head{flex:1 1 100%;flex-wrap:wrap;align-items:flex-start;gap:8px}
+  .top-dossier .case-title-block{flex:1 1 100%;min-width:0}
+  .top-dossier .case-title-block h1{white-space:normal;font-size:19px}
+  .top-dossier .breadcrumb{flex-wrap:wrap}
+  .top-dossier .breadcrumb button,.top-dossier .breadcrumb span{white-space:nowrap}
+  .top-dossier .case-meta .mono,.top-dossier .status-tag{white-space:nowrap}
+  .top-dossier .save-state{order:5}
+
+  /* Onglets d'un dossier et autres barres d'onglets : défilement horizontal propre */
+  .tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+
+  /* Tableaux transformés en fiches (portefeuille, clients, historique,
+     référentiels, audit) — une fiche par ligne, libellé de colonne à gauche. */
+  table.en-fiches thead{display:none}
+  table.en-fiches,table.en-fiches tbody,table.en-fiches tfoot,table.en-fiches tr,table.en-fiches td{display:block;width:100%}
+  table.en-fiches tbody tr{border:1px solid var(--reglure);border-radius:10px;margin:0 0 10px;padding:8px 10px;background:var(--surface,#fff);position:relative}
+  /* Libellé flottant à gauche, contenu à droite : plusieurs informations
+     dans une même case passent l'une sous l'autre au lieu de s'écraser. */
+  table.en-fiches td{display:block;padding:4px 2px;border:0;min-width:0!important;text-align:right;white-space:normal!important;overflow-wrap:anywhere}
+  table.en-fiches td::after{content:"";display:block;clear:both}
+  table.en-fiches td::before{content:attr(data-l);float:left;margin-right:12px;font-weight:600;color:var(--encre-55);text-align:left;font-size:12px;line-height:1.9}
+  table.en-fiches td[data-l=""]::before{content:none}
+  table.en-fiches td.cell-titre{display:block;text-align:left;font-size:14.5px;padding-bottom:6px}
+  table.en-fiches td.cell-titre::before{content:none}
+  table.en-fiches td.fj-vide{display:none}
+  table.en-fiches td.bulk-check{display:none}
+  table.en-fiches .row-actions{display:flex;gap:8px;width:100%;justify-content:flex-end}
+  table.en-fiches .fj-boutons{display:flex;flex-direction:row;gap:8px;justify-content:flex-end}
+  table.en-fiches .fj-frise{display:inline-flex}
+  table.en-fiches tfoot tr{display:flex;justify-content:space-between;border:0;padding:6px 4px;font-weight:700}
+  table.en-fiches tfoot td{display:block;width:auto;border:0;padding:0}
+  table.en-fiches tfoot td:empty{display:none}
+  .mission-card,.mission-card .bd,.card:has(> table.en-fiches){overflow:visible}
+
+  /* Tableaux restés en tableau (synthèses, statistiques) : défilement interne */
+  .card .bd:has(> table:not(.en-fiches)){overflow-x:auto}
+  table.synthese-table th,table.synthese-table td{padding-left:6px;padding-right:6px}
+
+  /* Champs : jamais plus larges que l'écran */
+  input,select,textarea{max-width:100%}
+}

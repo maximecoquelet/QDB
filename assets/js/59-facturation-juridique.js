@@ -627,7 +627,7 @@ function fjTableauDeBordHTML(){
       <select data-fj-exercice style="width:auto;min-width:150px">${dispo.map(x=>`<option value="${x}" ${x===n?"selected":""}>${fjLibelleExercice(x)}</option>`).join("")}</select>
       <span class="dim" style="font-weight:400">${d.nb} ligne(s) facturée(s) · ${eur0(d.total)} HT</span></div>
     <div class="bd">${fjGraphiqueMois(d,n)}<div class="grid g2" style="align-items:start;gap:18px;margin-top:14px">
-      <div style="overflow-x:auto"><table class="synthese-table fj-table"><thead><tr><th>Mois</th><th class="r">Honoraires</th><th class="r">Dont JLT</th><th class="r">%</th><th class="r">N-1</th><th class="r">Écart</th></tr></thead><tbody>
+      <div style="overflow-x:auto"><table class="synthese-table fj-stats"><thead><tr><th>Mois</th><th class="r">Honoraires</th><th class="r">Dont JLT</th><th class="r">%</th><th class="r">N-1</th><th class="r">Écart</th></tr></thead><tbody>
         ${d.parMois.map(x=>`<tr><td>${esc(fjMoisLong(x.m))}</td><td class="r num">${x.t?eur0(x.t):`<span class="dim">—</span>`}</td><td class="r num">${x.j?eur0(x.j):`<span class="dim">—</span>`}</td><td class="r num">${x.t?pct(x.j,x.t):"—"}</td><td class="r num">${x.p?eur0(x.p):`<span class="dim">—</span>`}</td><td class="r num">${x.m>today().slice(0,7)?"":(x.t||x.p?ecart(x.t,x.p):"")}</td></tr>`).join("")}
       </tbody><tfoot><tr class="total"><td><b>Total</b></td><td class="r num"><b>${eur0(d.total)}</b></td><td class="r num">${eur0(totJ)}</td><td class="r num">${pct(totJ,d.total)}</td><td class="r num">${eur0(totP)}</td><td class="r num">${ecart(d.total,totP)}</td></tr></tfoot></table>
       <div class="hint">Lignes facturées uniquement, au mois de rattachement. N-1 : même mois de l'exercice précédent.</div></div>
@@ -1037,13 +1037,21 @@ if(!window.__fjClavier){
 /* ----------------------------------------------------- liaisons écran */
 /* Sur téléphone, chaque ligne devient une fiche : chaque cellule reçoit le
    libellé de sa colonne, et les cellules vides sont masquées. */
+/* v58.5 : étendu aux tableaux de l'ensemble de l'application (portefeuille,
+   clients, historique, référentiels, audit) — appelé à chaque affichage. */
+const TABLES_FICHES = ".fj-table, .mission-table:not(.ca-table), .client-table, .referentiel-table, .audit-table, .client-side table, .table-fiches";
 function fjEtiqueterTables(){
-  document.querySelectorAll(".fj-table").forEach(t=>{
+  document.querySelectorAll(TABLES_FICHES).forEach(t=>{
+    t.classList.add("en-fiches");
+    const premiere=[...(t.tBodies[0]?.rows[0]?.cells||[])].find(c=>!c.classList.contains("bulk-check"));
     const titres=[...t.querySelectorAll("thead th")].map(th=>{ const c=th.cloneNode(true); c.querySelectorAll(".fj-fleche").forEach(x=>x.remove()); return c.textContent.trim(); });
+    const iTitre=premiere?premiere.cellIndex:0;
     t.querySelectorAll("tbody tr").forEach(tr=>[...tr.cells].forEach(td=>{
       if(td.colSpan>1) return;
       td.dataset.l=titres[td.cellIndex]||"";
-      if(td.textContent.trim()==="—") td.classList.add("fj-vide");
+      if(td.cellIndex===iTitre) td.classList.add("cell-titre");
+      const vide=!td.querySelector("input,button,select,img,svg,a,details");
+      if(vide&&(td.textContent.trim()==="—"||td.textContent.trim()==="")) td.classList.add("fj-vide");
     }));
   });
 }

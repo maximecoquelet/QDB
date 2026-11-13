@@ -99,7 +99,7 @@ VIEWS.devis1 = () => {
   <div class="wrap has-context-bar">
     ${lockedBannerHTML(d)}
     <div class="tabs sticky-tabs">${TABS.map(([t,l,n])=>`<button data-tab="${t}" class="${st.tab===t?"on":""}" title="${esc(l)} — touche ${n}"><i class="n">${n}</i>${l}${etatOnglet(d,m,t)}</button>`).join("")}</div>
-    <div class="${lockClass}">${avecLedger?`<div class="grid" style="grid-template-columns:1fr 312px;align-items:start">
+    <div class="${lockClass}">${avecLedger?`<div class="grid" style="grid-template-columns:minmax(0,1fr) 312px;align-items:start">
       <div>${corps}</div>
       <div><div id="ledger">${ledger(d)}</div><div id="warn" style="margin-top:13px">${warn(d)}</div>${auditCard(d)}</div></div>`:corps}</div>
     ${contextBarHTML(d)}
