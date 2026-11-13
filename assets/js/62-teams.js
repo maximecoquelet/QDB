@@ -11,6 +11,7 @@
    Workflow Teams. Réservé aux comptes autorisés par le serveur (variable
    TEAMS_UTILISATEURS) : pour les autres, ni fenêtre ni bouton.
    Bouton : onglet Signature, étape « Devis signé ou validé ».
+   Uniquement pour les missions de tenue comptable (« Mission normale »).
    ===================================================================== */
 const TEAMS = { pret:false, verifie:false };
 const TEAMS_TYPES = { traditional:"Mission normale", punctual:"Ponctuelle comptable", legal:"Ponctuelle juridique" };
@@ -33,6 +34,10 @@ function teamsBandeau(message, libelle, action){
 }
 
 const teamsValide = d => !!manualSignState(d?.manualSign).quoteSigned||d?.sign?.statut==="done";
+/* v58.3 : seules les missions de tenue comptable (type « Mission normale »,
+   honoraires récurrents) sont publiées ; ni les ponctuelles comptables, ni
+   les juridiques. */
+function teamsConcerne(d){ try{ return dashboardColorType(d,modOf(d))==="traditional"; }catch(_){ return false; } }
 
 function teamsCharge(d){
   const m=modOf(d), ms=manualSignState(d.manualSign); let t={recAn:0,pon:0};
@@ -97,7 +102,7 @@ async function teamsEnvoyer(d, charge, correction){
 
 /* Appelé au passage à « validé ». */
 async function teamsDevisValide(d){
-  if(!d||d.teamsNotifie||!(SB&&SB_USER)) return;
+  if(!d||d.teamsNotifie||!(SB&&SB_USER)||!teamsConcerne(d)) return;
   if(!await teamsVerifier()) return;
   const charge=await teamsFenetre(d,false);
   if(!charge){
@@ -115,7 +120,7 @@ async function teamsPublierManuel(d, correction){
 /* Bouton dans le parcours de signature (onglet Signature, étape 2).
    Affiché uniquement si le serveur reconnaît le compte comme autorisé. */
 function teamsZoneParcours(d){
-  if(!TEAMS.pret||!teamsValide(d)) return "";
+  if(!TEAMS.pret||!teamsValide(d)||!teamsConcerne(d)) return "";
   if(!d.teamsNotifie) return `<div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-teams-publier title="Publier ce devis validé dans la conversation Teams du cabinet">Publier dans Teams</button></div>`;
   return `<div class="row" style="margin-top:6px;gap:8px;align-items:center"><span class="tag vert">Publié dans Teams le ${esc(dateFR(String(d.teamsNotifie.at||"").slice(0,10)))}</span><button type="button" class="btn ghost sm" data-teams-correction>Publier une correction</button></div>`;
 }
