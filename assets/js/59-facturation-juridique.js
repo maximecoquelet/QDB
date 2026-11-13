@@ -58,7 +58,7 @@ async function fjInitialiser(){
     await fjChargerReglages();
     await fjCharger();
     const n=await fjSynchroniser();
-    if(n) setTimeout(()=>toast(`Facturation juridique : ${n} dossier(s) reclassé(s) transféré(s) automatiquement.`),1200);
+    if(n) setTimeout(()=>toast(`Facturation juridique : ${n} dossier(s) validé(s) transféré(s) automatiquement.`),1200);
   }catch(_){ FJ.acces=false; }
 }
 
@@ -96,13 +96,14 @@ function fjModeleRetenu(m){
 /* =====================================================================
    v55.2 — TRANSFERT AUTOMATIQUE
    Un dossier établi sur le modèle « Mission juridique exceptionnelle »
-   reçoit sa ligne de suivi dès qu'il est RECLASSÉ dans l'outil (étape
-   « Dossier classé »), quel que soit le collaborateur qui l'a classé.
+   reçoit sa ligne de suivi dès qu'il est VALIDÉ (case « Devis signé ou
+   validé », bouton « Devis validé » ou signature Yousign) — v58.8 ;
+   auparavant : au classement. Quel que soit le collaborateur.
    Les devis classiques ne sont jamais transférés (pas d'AGOA).
 
    Le transfert se fait depuis le compte autorisé : au chargement de
    l'application, puis à chaque retour sur l'écran. Seuls les dossiers
-   classés à partir de la mise en service sont transférés d'office ; les
+   validés à partir de la mise en service sont transférés d'office ; les
    plus anciens sont proposés dans la liste « non encore suivis ».
    Aucun rapprochement automatique avec les lignes existantes : un client
    peut avoir plusieurs opérations, le lien se fait à la main.
@@ -112,7 +113,14 @@ function fjDateDepart(){
   return dates[0]||today();
 }
 
-async function fjSynchroniser(){
+/* Un seul transfert à la fois : un second appel pendant qu'un premier
+   tourne reçoit le même résultat (sinon deux lignes pour un même devis). */
+function fjSynchroniser(){
+  if(FJ.__sync) return FJ.__sync;
+  FJ.__sync=fjSynchroniserUneFois().finally(()=>{ FJ.__sync=null; });
+  return FJ.__sync;
+}
+async function fjSynchroniserUneFois(){
   FJ.derniereSync=Date.now();
   if(!FJ.acces) return 0;
   const depart=fjDateDepart();
@@ -307,7 +315,7 @@ function fjTableauExercice(n){
   return {parMois,total,types,familles,debours,nb:lignes.length};
 }
 
-/* Missions juridiques exceptionnelles reclassées dans l'outil, pas encore suivies. */
+/* Missions juridiques exceptionnelles validées dans l'outil, pas encore suivies. */
 function fjMasques(){ try{ return new Set(JSON.parse(localStorage.getItem(FJ_MASQUES_STORAGE)||"[]")); }catch(_){ return new Set(); } }
 function fjMasquer(id){ try{ const s=fjMasques(); s.add(id); localStorage.setItem(FJ_MASQUES_STORAGE,JSON.stringify([...s])); }catch(_){} }
 
@@ -317,16 +325,16 @@ function fjDossiersASuivre(){
   for(const d of (st.devis||[])){
     if(suivis.has(d.id)||masques.has(d.id)) continue;
     try{
-      if(workflowStatut(d)!=="classe") continue;
-      const m=modOf(d); if(!fjModeleRetenu(m)) continue;
       const ms=manualSignState(d.manualSign);
-      out.push({d, montant:+totaux(d,m).ht||0, date:ms.filedDate||dateSignatureDe(d)});
+      if(!(ms.quoteSigned||d.sign?.statut==="done")) continue;     /* validé (et donc pas « sans suite ») */
+      const m=modOf(d); if(!fjModeleRetenu(m)) continue;
+      out.push({d, montant:+totaux(d,m).ht||0, date:ms.quoteSignedDate||d.sign?.signe||dateSignatureDe(d)});
     }catch(_){}
   }
   return out.sort((a,b)=>String(b.date).localeCompare(String(a.date)));
 }
 
-/* Ligne créée pour un dossier reclassé : elle arrive EN COURS. Dates, type
+/* Ligne créée pour un dossier validé : elle arrive EN COURS. Dates, type
    et débours restent à saisir : l'outil de devis ne les connaît pas. */
 function fjDepuisDossier(d){
   const m=modOf(d), t=totaux(d,m), cats=honorairesParCategorie(d,m).cats||{};
@@ -468,10 +476,10 @@ function fjVueEncours(){
       ${kpi("En cours",eur0(s.encours.m),`${s.encours.n} dossier(s)`)}
       ${kpi("Facturé ce mois",eur0(s.moisCourant),esc(fjMoisLong(today())))}
       ${kpi(`Exercice ${fjLibelleExercice(fjExerciceDe(today()))}`,eur0(s.exercice),s.exerciceN1MemePeriode?`N-1 à date : ${eur0(s.exerciceN1MemePeriode)} (${s.exercice>=s.exerciceN1MemePeriode?"+":""}${Math.round((s.exercice-s.exerciceN1MemePeriode)/s.exerciceN1MemePeriode*100)} %)`:"Juin à mai")}
-      ${kpi("Nouveaux dossiers de l'outil",String(aSuivre.length),"Missions juridiques exceptionnelles reclassées, non suivies")}
+      ${kpi("Nouveaux dossiers de l'outil",String(aSuivre.length),"Missions juridiques exceptionnelles validées, non suivies")}
     </div>`)}
-    ${aSuivre.length?`<details class="card" style="margin-bottom:14px" ${aSuivre.length<=5?"open":""}><summary class="hd" style="cursor:pointer">Missions juridiques exceptionnelles reclassées dans l'outil, non encore suivies <span class="tag ocre">${aSuivre.length}</span></summary><div class="bd">
-      <table class="synthese-table"><thead><tr><th>Client</th><th>Devis</th><th>Classé le</th><th class="r">Honoraires HT</th><th></th></tr></thead><tbody>
+    ${aSuivre.length?`<details class="card" style="margin-bottom:14px" ${aSuivre.length<=5?"open":""}><summary class="hd" style="cursor:pointer">Missions juridiques exceptionnelles validées avant la mise en service, non encore suivies <span class="tag ocre">${aSuivre.length}</span></summary><div class="bd">
+      <table class="synthese-table"><thead><tr><th>Client</th><th>Devis</th><th>Validé le</th><th class="r">Honoraires HT</th><th></th></tr></thead><tbody>
       ${aSuivre.slice(0,30).map(x=>`<tr><td>${esc(x.d.client?.raison||"Dossier")}</td><td>${esc(x.d.ref||intituleDevis(x.d))}</td><td>${fjDt(String(x.date||"").slice(0,10))}</td><td class="r num">${eur(x.montant)}</td>
         <td class="r"><button class="btn sm p" data-fj-suivre="${esc(x.d.id)}">Ajouter au suivi</button> <button class="btn sm" data-fj-ignorer="${esc(x.d.id)}" title="Ne plus proposer ce dossier">Ignorer</button></td></tr>`).join("")}
       </tbody></table></div></details>`:""}
@@ -536,7 +544,7 @@ function fjVueDevisEnvoyes(){
           <td class="fj-actions"><div class="fj-boutons"><button class="btn sm p" data-fj-valider="${esc(x.d.id)}" title="Cocher « Devis signé ou validé » dans le dossier">Devis validé</button><button class="btn sm" data-fj-sans-suite="${esc(x.d.id)}" title="Le client n'a pas donné suite">Sans suite</button><button class="btn sm" data-fj-devis="${esc(x.d.id)}">Ouvrir</button></div></td></tr>`;}).join("")||`<tr><td colspan="8"><div class="empty-state"><b>Aucun devis en attente d'acceptation</b></div></td></tr>`}</tbody>
         <tfoot><tr class="total"><td colspan="5"><b>Total (${liste.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
-      <div class="hint" style="margin-top:8px">Attente : gris jusqu'à 15 jours, orange au-delà, rouge après 30 jours. « Devis validé » coche « Devis signé ou validé » dans le dossier ; la ligne arrivera dans « Dossiers en cours » au reclassement du dossier.</div>
+      <div class="hint" style="margin-top:8px">Attente : gris jusqu'à 15 jours, orange au-delà, rouge après 30 jours. « Devis validé » coche « Devis signé ou validé » dans le dossier et crée aussitôt la ligne dans « Dossiers en cours ».</div>
     </div></div>
     ${(()=>{ const ss=fjDevisSansSuite(); return ss.length?`<details class="card" style="margin-top:14px"><summary class="hd" style="cursor:pointer">Devis classés sans suite <span class="tag gris">${ss.length}</span></summary><div class="bd">
       <table class="synthese-table fj-table"><thead><tr><th>Sans suite le</th><th>Client</th><th>Devis</th><th class="r">Honoraires HT</th><th class="fj-actions"></th></tr></thead><tbody>
@@ -760,7 +768,7 @@ function fjGererListes(){
       <label class="f" style="margin-top:16px"><span><b>Types d'opération</b> — liste fermée, un par ligne</span><textarea data-fj-types style="min-height:200px">${esc(fjTypes().join("\n"))}</textarea>
       <div class="hint">Un type retiré de la liste reste affiché sur les lignes qui le portent, signalé « hors liste ».</div></label>
       <label class="f" style="margin-top:12px"><span><b>Familles</b> — une par ligne : « Famille : type ; type ; … »</span><textarea data-fj-familles style="min-height:170px">${esc(Object.entries(fjFamilles()).map(([f,ts])=>`${f} : ${(ts||[]).join(" ; ")}`).join("\n"))}</textarea></label>
-      <div class="f" style="margin-top:12px"><span><b>Modèles de devis transférés</b> au reclassement du dossier</span>
+      <div class="f" style="margin-top:12px"><span><b>Modèles de devis transférés</b> à la validation du devis</span>
         ${modeles.map(x=>`<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><input type="checkbox" data-fj-modele="${esc(x.id)}" ${fjModeleRetenu(x)?"checked":""}> ${esc(x.titre||"Modèle")}</label>`).join("")}
       </div>
     </div>
@@ -1129,12 +1137,13 @@ function fjLier(){
     render();
   });
   /* Retour sur l'écran : transfert des dossiers validés entre-temps. */
-  if(Date.now()-FJ.derniereSync>30000) fjSynchroniser().then(n=>{ if(n){ toast(`${n} dossier(s) reclassé(s) transféré(s) dans les dossiers en cours.`); render(); } });
+  if(Date.now()-FJ.derniereSync>30000) fjSynchroniser().then(n=>{ if(n){ toast(`${n} dossier(s) validé(s) transféré(s) dans les dossiers en cours.`); render(); } });
   un("[data-fj-valider]",b=>b.onclick=async()=>{
     const d=st.devis.find(x=>x.id===b.dataset.fjValider); if(!d) return;
     if(!await askConfirm("Devis validé",`Le devis ${d.ref||""} de ${d.client?.raison||"ce client"} sera marqué « signé ou validé » à la date du jour. Les documents du dossier seront figés, comme depuis le dossier lui-même.`,{confirmLabel:"Valider le devis"})) return;
     const avant=JSON.parse(JSON.stringify(d));
     await fjSurDevis(d.id, async()=>{ await ACTS.manualSignStep({dataset:{step:"quoteSigned"},checked:true}); });
+    if(manualSignState(d.manualSign).quoteSigned){ const n=await fjSynchroniser(); render(); if(n) toast(`${d.client?.raison||"Dossier"} ajouté aux dossiers en cours.`); }
     if(d.manualSign?.quoteSigned) fjAnnulable(`Devis ${d.ref||""} validé — ${d.client?.raison||""}`, async()=>{
       await fjSurDevis(d.id, async(x)=>{ for(const k of Object.keys(x)) if(k!=="rev") delete x[k]; Object.assign(x,{...avant,rev:x.rev}); logAudit(x,"Validation du devis annulée",""); await saveDev(); });
     });

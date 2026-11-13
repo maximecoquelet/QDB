@@ -671,6 +671,8 @@ const ACTS = {
     } else d.statut=d.ref?"genere":"brouillon";
     logAudit(d,"Suivi de signature modifié",step+" : "+(checked?"oui":"non")); await saveDev(); render();
     if(!etaitValide&&m.quoteSigned&&typeof teamsDevisValide==="function") teamsDevisValide(d);
+    /* v58.8 : un devis juridique validé rejoint aussitôt la facturation juridique. */
+    if(!etaitValide&&m.quoteSigned&&typeof FJ!=="undefined"&&FJ.acces&&typeof fjSynchroniser==="function") fjSynchroniser();
     const labOk=labRempliPour(d), accReq=parcoursAcceptation(d);
     const msg=m.filed?"Parcours terminé : dossier classé."
       :(avecLm&&m.lmSigned)?"Lettre de mission signée : dossier à classer."
