@@ -75,21 +75,32 @@ function teamsFenetre(d, correction){
           ${champ("responsable","Responsable")}
         </div>
         <label class="f" style="margin-top:10px"><span>Note (facultative)</span><textarea data-tm="commentaire" placeholder="ex. acompte reçu, délai à surveiller…">${esc(c.commentaire||"")}</textarea></label>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" data-tm-pdf checked> Joindre le PDF du devis</label>
       </div>
       <div class="modal-actions"><button class="btn" data-no>Ne pas publier</button><button class="btn p" data-yes>Publier dans Teams</button></div></div>`;
     const fin=v=>{ m.remove(); resolve(v); };
     m.querySelector(".modal-x").onclick=()=>fin(null); m.querySelector("[data-no]").onclick=()=>fin(null);
-    m.querySelector("[data-yes]").onclick=()=>{ m.querySelectorAll("[data-tm]").forEach(el=>{ c[el.dataset.tm]=el.type==="number"?(+el.value||0):el.value; }); fin(c); };
+    m.querySelector("[data-yes]").onclick=()=>{ m.querySelectorAll("[data-tm]").forEach(el=>{ c[el.dataset.tm]=el.type==="number"?(+el.value||0):el.value; }); c.__joindre=!!m.querySelector("[data-tm-pdf]")?.checked; fin(c); };
     document.body.appendChild(m); setTimeout(()=>m.querySelector("[data-yes]")?.focus(),30);
   });
 }
 
+/* v58.4 — PDF du devis joint : même rendu que « Télécharger le PDF »,
+   transmis au Workflow Teams qui l'enregistre et le publie. */
+const teamsBase64 = blob => new Promise((ok,ko)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(",")[1]||""); r.onerror=()=>ko(r.error); r.readAsDataURL(blob); });
 async function teamsEnvoyer(d, charge, correction){
   try{
-    const r=await proxyFetch(teamsBase()+"/api/teams/devis-valide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...charge,correction:!!correction})});
+    const {__joindre,...donnees}=charge;
+    const corps={...donnees,correction:!!correction};
+    if(__joindre){
+      toast("Préparation du PDF du devis…");
+      const {blob,filename}=await fetchPdfBlob("devis",d,modOf(d));
+      corps.fichier={nom:filename,contenu:await teamsBase64(blob)};
+    }
+    const r=await proxyFetch(teamsBase()+"/api/teams/devis-valide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(corps)});
     const j=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
-    d.teamsNotifie={at:nowISO(),par:SB_USER?.email||"",charge}; delete d.teamsEnAttente;
+    d.teamsNotifie={at:nowISO(),par:SB_USER?.email||"",charge:donnees,pdf:!!__joindre}; delete d.teamsEnAttente;
     document.querySelectorAll(".fj-annuler").forEach(x=>x.remove());
     await teamsEnregistrerDevis(d); render();
     toast(correction?"Correction publiée dans Teams.":`Devis ${d.ref||""} publié dans Teams.`);
