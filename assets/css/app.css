@@ -1305,3 +1305,16 @@ body.theme-dark .fj-table .fj-actions{background:var(--surface)}
   /* Champs : jamais plus larges que l'écran */
   input,select,textarea{max-width:100%}
 }
+
+/* v58.6 — Fenêtres : le contenu défile dans la fenêtre (titre et boutons
+   restent visibles) et la page derrière ne bouge plus. */
+.modal{overscroll-behavior:contain}
+.modal-confirm .box{display:flex;flex-direction:column;max-height:min(90vh,calc(100dvh - 40px))}
+.modal-confirm .box>.modal-titlebar,.modal-confirm .box>.modal-actions{flex:0 0 auto}
+.modal-confirm .box>.modal-content{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+body:has(.modal){overflow:hidden}
+@media (max-width:760px){
+  .modal{padding:10px}
+  .modal-confirm .box{max-height:calc(100dvh - 20px)}
+  .modal-actions{flex-wrap:wrap}
+}

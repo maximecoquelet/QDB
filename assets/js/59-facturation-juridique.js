@@ -1020,6 +1020,23 @@ function fjOuvrirEtape(btn){
   });
 }
 
+/* v58.6 — Clic en dehors d'une fenêtre : elle se ferme comme avec
+   « Annuler » / × (aucune donnée enregistrée). Le clic doit COMMENCER et
+   FINIR sur le fond : une sélection de texte qui déborde de la fenêtre ne
+   la ferme pas. Vaut pour toutes les fenêtres de l'application. */
+if(!window.__fjFondModal){
+  window.__fjFondModal=true;
+  let depart=null;
+  document.addEventListener("mousedown",e=>{ depart=e.target; },true);
+  document.addEventListener("click",e=>{
+    const m=e.target;
+    if(!(m instanceof HTMLElement)||!m.classList.contains("modal")||!m.isConnected||depart!==m) return;
+    const modales=[...document.querySelectorAll(".modal")]; if(modales[modales.length-1]!==m) return;
+    const fermer=m.querySelector(".modal-x,[data-no],[data-x]");
+    if(fermer) fermer.click(); else m.remove();
+  });
+}
+
 /* Clavier dans les fenêtres : Échap ferme, Entrée valide (hors zone de texte). */
 if(!window.__fjClavier){
   window.__fjClavier=true;
