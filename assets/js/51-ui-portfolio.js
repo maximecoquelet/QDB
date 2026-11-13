@@ -115,7 +115,7 @@ function dashboardRows(rows,type){
     const arch=isArchivedDevis(d), c=clientMasterOf(d), color=dashboardColorType(d,m), label=missionRowLabel(d,m);
     return `<tr class="mission-${color}" data-row-open="${d.id}" title="Cliquer pour ouvrir le dossier">`
       +`<td class="bulk-check"><input type="checkbox" data-act="bulkToggle" data-id="${d.id}" ${st.bulkIds.includes(d.id)?"checked":""}></td>`
-      +`<td><b>${esc(d.client.raison||"— sans nom —")}</b>${arch?` <span class="tag gris">Archivé</span>`:""}`
+      +`<td><b>${esc(d.client.raison||"— sans nom —")}</b>${arch?` <span class="tag gris">${d.sansSuite&&!c?.archive?"Sans suite · archivé":"Archivé"}</span>`:""}`
         +(intitulePersonnalise(d)?`<div style="font-size:12px;font-weight:600">${esc(intituleDevis(d))}</div>`:"")
         +`<div class="dim">${esc(d.client.forme)} ${esc(d.client.ville||"")}</div>`
         +`<div class="dim">Début mission : ${d.debut?dateFR(d.debut):"à renseigner"}</div>`
@@ -157,7 +157,7 @@ function missionPanelHTML({key,titre,swatch,cls,rows,type,force}){
 }
 VIEWS.devis = () => {
   const q=st.q.toLowerCase().trim(), f=st.portFilters||{}, years=[...new Set(st.devis.map(d=>String(d.dateDevis||d.cree||"").slice(0,4)).filter(Boolean))].sort().reverse();
-  const archiveBase=st.devis.filter(d=>f.archive==="all"?true:f.archive==="archived"?isArchivedDevis(d):!isArchivedDevis(d));
+  const archiveBase=st.devis.filter(d=>f.archive==="all"||f.status==="sans_suite"?true:f.archive==="archived"?isArchivedDevis(d):!isArchivedDevis(d));
   const filtered=archiveBase.filter(d=>{
     ensureInternalState(d);
     const m=modOf(d), ws=workflowStatut(d), color=dashboardColorType(d,m), section=dashboardSectionType(d,m), yr=String(d.dateDevis||d.cree||"").slice(0,4);

@@ -28,7 +28,7 @@ function appNotifications(){
   }
   return a.sort((x,y)=>(x.level==="red"?0:x.level==="blue"?1:2)-(y.level==="red"?0:y.level==="blue"?1:2)).slice(0,80);
 }
-function recentDevis(limit=6){return [...st.devis].sort((a,b)=>String(b.majAt||b.maj||b.cree||"").localeCompare(String(a.majAt||a.maj||a.cree||""))).slice(0,limit);}
+function recentDevis(limit=6){return st.devis.filter(d=>!isArchivedDevis(d)).sort((a,b)=>String(b.majAt||b.maj||b.cree||"").localeCompare(String(a.majAt||a.maj||a.cree||""))).slice(0,limit);}
 function categoryBadge(cat){const x=normLabel(cat||""),c=x.includes("compt")?"cat-compta":x.includes("fiscal")?"cat-fiscal":x.includes("social")?"cat-social":x.includes("jurid")?"cat-juridique":x.includes("gestion")?"cat-gestion":"";return `<span class="category-chip ${c}">${esc(cat||"Général")}</span>`;}
 
 function markerCssClass(marker){const x=normLabel(marker||"");return x.includes("compt")?"cat-compta":x.includes("fiscal")?"cat-fiscal":x.includes("social")?"cat-social":x.includes("jurid")?"cat-juridique":x.includes("gestion")?"cat-gestion":"";}

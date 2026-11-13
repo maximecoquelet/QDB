@@ -557,7 +557,7 @@ function fjDevisSansSuite(){
   const out=[];
   for(const d of (st.devis||[])){
     try{
-      if(!d.sansSuite||isArchivedDevis(d)) continue;
+      if(!d.sansSuite||clientMasterOf(d)?.archive) continue;
       const m=modOf(d); if(!fjModeleRetenu(m)) continue;
       out.push({d,ht:+totaux(d,m).ht||0});
     }catch(_){}

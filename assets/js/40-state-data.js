@@ -1149,7 +1149,11 @@ function rneImportedInfoHTML(d){
   if(!bits.length) return "";
   return `<div class="notice vert" style="margin-top:10px"><b>Données RNE importées</b><br>${bits.map(esc).join(" · ")}<div class="hint" style="margin-top:4px">Source : RNE / INPI · ${r.importedAt?dateTimeFR(r.importedAt):""}</div></div>`;
 }
-function isArchivedDevis(d){ return !!clientMasterOf(d)?.archive; }
+/* v58.9 : un devis « sans suite » est archivé au même titre qu'un dossier
+   dont la fiche client est archivée : il sort du portefeuille actif, de
+   l'accueil, des notifications et des relances ; le filtre « Archivés »
+   du portefeuille le retrouve. « Réactiver » le remet en service. */
+function isArchivedDevis(d){ return !!clientMasterOf(d)?.archive || !!d?.sansSuite; }
 function clientHistory(d){
   const c=clientMasterOf(d);
   if(!c) return [];
