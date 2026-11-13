@@ -119,6 +119,9 @@ async function fjSynchroniser(){
   const candidats=fjDossiersASuivre().filter(x=>String(x.date||"").slice(0,10)>=depart);
   let n=0;
   for(const {d} of candidats){
+    /* Plusieurs comptes ont accès : on revérifie en base, juste avant la
+       création, qu'un autre ne vient pas de transférer ce dossier. */
+    try{ const {data:deja}=await SB.from("facturation_juridique").select("id").eq("devis_id",d.id).limit(1); if(deja?.length){ await fjCharger(); continue; } }catch(_){}
     const {data,error}=await SB.from("facturation_juridique").insert(fjLigneVersBase(fjDepuisDossier(d))).select();
     if(error){ console.warn("Transfert juridique",error.message); continue; }
     if(data?.[0]){ FJ.lignes.push(data[0]); n++; }
