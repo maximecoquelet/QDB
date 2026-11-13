@@ -365,7 +365,7 @@ function bind(){
   document.querySelectorAll("[data-global-search]").forEach(b=>b.onclick=()=>openGlobalSearch());
   document.querySelectorAll("[data-nav]").forEach(b=>b.onclick=()=>{ const v=b.dataset.nav;
     /* v55.6 : la facturation juridique s'ouvre toujours sur les dossiers en cours. */
-    if(v==="juridique"&&typeof FJ!=="undefined"){ FJ.onglet="encours"; FJ.filtreEtape=""; }
+    if(v==="juridique"&&typeof FJ!=="undefined"){ FJ.onglet="encours"; FJ.filtreEtape=""; if(FJ.tris) delete FJ.tris.encours; }
     if(v==="nouveau"){ nouveauDevis(); return; } if(!canView(v)){toast("Accès réservé selon votre rôle.",true);return;}
     /* Quitter un dossier pour la liste : on repère la ligne au retour. */
     if(v==="devis"&&st.view==="devis1"&&st.id) st.flashDevisId=st.id;

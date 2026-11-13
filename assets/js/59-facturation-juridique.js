@@ -458,7 +458,9 @@ function fjVueEncours(){
   const filtre=E.some(e=>e.id===FJ.filtreEtape)?FJ.filtreEtape:"";
   const rang=l=>E.findIndex(e=>e.id===fjEtapeDe(l).id);
   const lignes=fjTrier(fjEncours().filter(fjFiltreTexte).filter(l=>!filtre||fjEtapeDe(l).id===filtre),"encours",FJ_TRI_VALEURS,
-    (a,b)=>(rang(b)-rang(a))||String(b.date_fin_formalite||b.date_depot_gtc||b.date_signature||b.date_projet||b.created_at||"").localeCompare(String(a.date_fin_formalite||a.date_depot_gtc||a.date_signature||a.date_projet||a.created_at||"")));
+    /* v58.7 : du moins avancé au plus avancé (à démarrer en haut, formalités
+       terminées en bas) ; à étape égale, la plus récente activité d'abord. */
+    (a,b)=>(rang(a)-rang(b))||String(b.date_fin_formalite||b.date_depot_gtc||b.date_signature||b.date_projet||b.created_at||"").localeCompare(String(a.date_fin_formalite||a.date_depot_gtc||a.date_signature||a.date_projet||a.created_at||"")));
   const total=lignes.reduce((t,l)=>t+(+l.honoraires||0),0);
   const reperes=!!FJ.reglages.options?.reperes;
   const filtres=`<div class="vues-barre" style="margin:0"><button class="vue-onglet ${!filtre?"on":""}" data-fj-etape="">Toutes <span class="vue-compte">${s.encours.n}</span></button>${E.map((e,i)=>`<button class="vue-onglet ${filtre===e.id?"on":""}" data-fj-etape="${esc(e.id)}"><span class="fj-point" style="--fj-c:${fjCouleurSure(e.couleur)}">${reperes?i+1:""}</span>${esc(e.libelle)} <span class="vue-compte">${s.parEtape[e.id]||0}</span></button>`).join("")}</div>`;
