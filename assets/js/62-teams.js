@@ -8,8 +8,9 @@
    « Ne pas publier ». Rien ne part sans ce clic.
 
    L'envoi passe par le serveur Render, seul détenteur de l'adresse du
-   Workflow Teams. Tant que cette adresse n'est pas configurée, la fenêtre
-   ne s'ouvre pas.
+   Workflow Teams. Réservé aux comptes autorisés par le serveur (variable
+   TEAMS_UTILISATEURS) : pour les autres, ni fenêtre ni bouton.
+   Bouton : onglet Signature, étape « Devis signé ou validé ».
    ===================================================================== */
 const TEAMS = { pret:false, verifie:false };
 const TEAMS_TYPES = { traditional:"Mission normale", punctual:"Ponctuelle comptable", legal:"Ponctuelle juridique" };
@@ -84,6 +85,7 @@ async function teamsEnvoyer(d, charge, correction){
     const j=await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
     d.teamsNotifie={at:nowISO(),par:SB_USER?.email||"",charge}; delete d.teamsEnAttente;
+    document.querySelectorAll(".fj-annuler").forEach(x=>x.remove());
     await teamsEnregistrerDevis(d); render();
     toast(correction?"Correction publiée dans Teams.":`Devis ${d.ref||""} publié dans Teams.`);
     return true;
@@ -100,7 +102,7 @@ async function teamsDevisValide(d){
   const charge=await teamsFenetre(d,false);
   if(!charge){
     d.teamsEnAttente=true; await teamsEnregistrerDevis(d); render();
-    teamsBandeau("Devis non publié dans Teams. Le bouton « Publier dans Teams » reste disponible dans le dossier.","",null);
+    teamsBandeau("Devis non publié dans Teams. Le bouton « Publier dans Teams » reste disponible dans l'onglet Signature du dossier.","",null);
     return;
   }
   await teamsEnvoyer(d,charge,false);
@@ -110,18 +112,17 @@ async function teamsPublierManuel(d, correction){
   const charge=await teamsFenetre(d,correction); if(charge) await teamsEnvoyer(d,charge,correction);
 }
 
-/* Boutons du dossier (en-tête et menu « Autres actions »). */
-function teamsBoutonDossier(d){
-  if(!TEAMS.pret||!teamsValide(d)||d.teamsNotifie) return "";
-  return `<button class="btn" data-teams-publier title="Publier ce devis validé dans la conversation Teams du cabinet">Publier dans Teams</button>`;
-}
-function teamsMenuDossier(d){
-  if(!TEAMS.pret||!d.teamsNotifie) return "";
-  return `<button data-teams-correction title="Publié le ${esc(dateFR(String(d.teamsNotifie.at||"").slice(0,10)))}">Publier une correction dans Teams</button>`;
+/* Bouton dans le parcours de signature (onglet Signature, étape 2).
+   Affiché uniquement si le serveur reconnaît le compte comme autorisé. */
+function teamsZoneParcours(d){
+  if(!TEAMS.pret||!teamsValide(d)) return "";
+  if(!d.teamsNotifie) return `<div class="row" style="margin-top:6px"><button type="button" class="btn sm" data-teams-publier title="Publier ce devis validé dans la conversation Teams du cabinet">Publier dans Teams</button></div>`;
+  return `<div class="row" style="margin-top:6px;gap:8px;align-items:center"><span class="tag vert">Publié dans Teams le ${esc(dateFR(String(d.teamsNotifie.at||"").slice(0,10)))}</span><button type="button" class="btn ghost sm" data-teams-correction>Publier une correction</button></div>`;
 }
 function teamsLier(){
   if(st.view!=="devis1") return;
   const d=curDev(); if(!d) return;
-  document.querySelectorAll("[data-teams-publier]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); teamsPublierManuel(d,false); });
-  document.querySelectorAll("[data-teams-correction]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); b.closest("details")?.removeAttribute("open"); teamsPublierManuel(d,true); });
+  /* preventDefault : le bouton est dans l'étiquette de la case à cocher. */
+  document.querySelectorAll("[data-teams-publier]").forEach(b=>b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); teamsPublierManuel(d,false); });
+  document.querySelectorAll("[data-teams-correction]").forEach(b=>b.onclick=e=>{ e.preventDefault(); e.stopPropagation(); teamsPublierManuel(d,true); });
 }

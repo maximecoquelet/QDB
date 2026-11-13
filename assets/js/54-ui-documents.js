@@ -1159,7 +1159,7 @@ function tabSign(d,m){
         </label>
         <label class="manual-step ${ms.quoteSigned?"done":""}">
           <input type="checkbox" data-act="manualSignStep" data-step="quoteSigned" ${ms.quoteSigned?"checked":""} ${(ms.sent&&canRole("manager"))?"":"disabled"}>
-          <div><div class="ms-title">2. Devis signé ou validé</div><div class="ms-help">${ms.sent?"Le devis a été signé ou validé par le client.":"À cocher une fois le devis transmis."}</div></div>
+          <div><div class="ms-title">2. Devis signé ou validé</div><div class="ms-help">${ms.sent?"Le devis a été signé ou validé par le client.":"À cocher une fois le devis transmis."}</div>${typeof teamsZoneParcours==="function"?teamsZoneParcours(d):""}</div>
           ${dateStep(ms.quoteSignedDate)}
         </label>
         ${acceptationRequise?`<label class="manual-step ${ms.accepted?"done":""}">
