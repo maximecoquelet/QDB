@@ -88,11 +88,13 @@ VIEWS.devis1 = () => {
       <button class="btn sm" ${voisins.prev?`data-sibling="${voisins.prev}"`:"disabled"} title="Dossier précédent du portefeuille (Alt + ↑)" aria-label="Dossier précédent">↑</button>
       <span class="position">${voisins.index+1} / ${voisins.total}</span>
       <button class="btn sm" ${voisins.next?`data-sibling="${voisins.next}"`:"disabled"} title="Dossier suivant du portefeuille (Alt + ↓)" aria-label="Dossier suivant">↓</button></span>`:""}
+    ${typeof teamsBoutonDossier==="function"?teamsBoutonDossier(d):""}
     <button class="btn p" data-act="previewQuote">Aperçu</button>
     <details class="row-menu menu-entete"><summary class="btn" title="Autres actions">Autres actions</summary><div class="menu-pop">
       <button data-act="devDup">Dupliquer le dossier</button>
       ${master?`<button data-act="clientArchive" data-client="${master.id}" data-to="${master.archive?0:1}">${master.archive?"Réactiver le client":"Archiver le client"}</button>`:""}
       <button data-act="print">Imprimer le document affiché</button>
+      ${typeof teamsMenuDossier==="function"?teamsMenuDossier(d):""}
       ${canRole("admin")?`<button data-act="comparePdf" title="Diagnostic : compare l'aperçu à l'écran et le PDF rendu par le serveur">Diagnostic — comparer aperçu et PDF</button>`:""}
       <button class="danger" data-act="devDel">Mettre le dossier à la corbeille</button>
     </div></details></div>

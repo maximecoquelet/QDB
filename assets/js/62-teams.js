@@ -1,23 +1,37 @@
 /* =====================================================================
-   v58 — TEAMS : devis validé → message dans la conversation du cabinet
+   v58.1 — TEAMS : devis validé → message dans la conversation du cabinet
    ---------------------------------------------------------------------
    Au passage d'un devis à « signé ou validé » (case du dossier, bouton
-   « Devis validé » de la page Juridique, ou signature Yousign), une carte
-   reprenant les informations principales part dans la conversation Teams,
-   via le serveur Render (qui seul détient l'adresse du Workflow Teams).
+   « Devis validé » de la page Juridique, ou signature Yousign), une
+   FENÊTRE DE VÉRIFICATION s'ouvre : les informations sont préremplies et
+   modifiables, une note peut être ajoutée, puis « Publier dans Teams » ou
+   « Ne pas publier ». Rien ne part sans ce clic.
 
-   Une seule fois par devis (`d.teamsNotifie`). Tant que l'adresse n'est
-   pas configurée sur Render, rien n'est envoyé et rien n'est signalé.
+   L'envoi passe par le serveur Render, seul détenteur de l'adresse du
+   Workflow Teams. Tant que cette adresse n'est pas configurée, la fenêtre
+   ne s'ouvre pas.
    ===================================================================== */
+const TEAMS = { pret:false, verifie:false };
 const TEAMS_TYPES = { traditional:"Mission normale", punctual:"Ponctuelle comptable", legal:"Ponctuelle juridique" };
+const teamsBase = () => String(st.ys?.proxy||DEFAULT_RENDER_PROXY).replace(/\/$/,"");
+
+/* Teams est-il branché côté serveur ? (une fois par session) */
+async function teamsVerifier(){
+  if(TEAMS.verifie||!(SB&&SB_USER)) return TEAMS.pret;
+  TEAMS.verifie=true;
+  try{ const r=await proxyFetch(teamsBase()+"/health/teams"); const j=await r.json().catch(()=>({})); TEAMS.pret=!!(r.ok&&j.devisValide); }catch(_){ TEAMS.pret=false; }
+  return TEAMS.pret;
+}
 
 function teamsBandeau(message, libelle, action){
   document.querySelectorAll(".fj-annuler").forEach(x=>x.remove());
   const t=document.createElement("div"); t.className="fj-annuler"; t.setAttribute("role","status");
-  t.innerHTML=`<span>${esc(message)}</span><button type="button">${esc(libelle)}</button><button type="button" aria-label="Fermer">×</button>`;
-  const [b,x]=t.querySelectorAll("button"); b.onclick=()=>{ t.remove(); action(); }; x.onclick=()=>t.remove();
+  t.innerHTML=`<span>${esc(message)}</span>${libelle?`<button type="button">${esc(libelle)}</button>`:""}<button type="button" aria-label="Fermer">×</button>`;
+  const bs=t.querySelectorAll("button"); if(libelle) bs[0].onclick=()=>{ t.remove(); action(); }; bs[bs.length-1].onclick=()=>t.remove();
   document.body.appendChild(t); setTimeout(()=>t.remove(),20000);
 }
+
+const teamsValide = d => !!manualSignState(d?.manualSign).quoteSigned||d?.sign?.statut==="done";
 
 function teamsCharge(d){
   const m=modOf(d), ms=manualSignState(d.manualSign); let t={recAn:0,pon:0};
@@ -28,23 +42,86 @@ function teamsCharge(d){
     client:d.client?.raison||"", siren:d.client?.siren||"", ref:d.ref||"",
     mission:titre&&titre!=="Devis"?titre:(m?.titre||""), type,
     recAn:Math.round((+t.recAn||0)*100)/100, pon:Math.round((+t.pon||0)*100)/100,
-    responsable:(d.ownerEmail||"").split("@")[0]||"", dateValidation:ms.quoteSignedDate||d.sign?.signe||today(),
+    dateDebut:d.dateDebutDossier||"", responsable:(d.ownerEmail||"").split("@")[0]||"",
+    dateValidation:ms.quoteSignedDate||d.sign?.signe||today(), commentaire:"",
     lien:location.origin+location.pathname
   };
 }
 
-async function teamsDevisValide(d, {force=false}={}){
-  if(!d||(!force&&d.teamsNotifie)||!(SB&&SB_USER)) return;
-  const base=String(st.ys?.proxy||DEFAULT_RENDER_PROXY).replace(/\/$/,"");
+async function teamsEnregistrerDevis(d){ const avant=st.id; st.id=d.id; try{ await saveDev(); }finally{ st.id=avant; } }
+
+/* Fenêtre de vérification. Résout avec la charge modifiée, ou null. */
+function teamsFenetre(d, correction){
+  return new Promise(resolve=>{
+    const c=teamsCharge(d);
+    if(correction&&d.teamsNotifie?.charge) Object.assign(c,d.teamsNotifie.charge,{commentaire:""});
+    const champ=(k,lib,type="text",extra="")=>`<label class="f"><span>${lib}</span><input type="${type}" data-tm="${k}" value="${esc(c[k]??"")}" ${extra}></label>`;
+    const m=document.createElement("div"); m.className="modal modal-confirm fj-modal";
+    m.innerHTML=`<div class="box" style="max-width:720px"><div class="modal-titlebar"><h2>${correction?"Publier une correction dans Teams":"Publier le devis validé dans Teams"}</h2><button class="modal-x" type="button">×</button></div>
+      <div class="modal-content">
+        <p class="hint" style="margin-top:0">Vérifiez et corrigez si besoin. Rien n'est envoyé tant que vous n'avez pas cliqué « Publier ». Le message part dans la conversation Teams du cabinet, jamais au client.</p>
+        <div class="grid g2">
+          ${champ("client","Client")}${champ("siren","SIREN")}
+          ${champ("ref","Devis")}${champ("type","Type")}
+          <label class="f" style="grid-column:1/-1"><span>Mission</span><input type="text" data-tm="mission" value="${esc(c.mission)}"></label>
+          ${champ("recAn","Honoraires récurrents HT par an (€)","number",'step="0.01" min="0"')}${champ("pon","Honoraires ponctuels HT (€)","number",'step="0.01" min="0"')}
+          ${champ("dateDebut","Début de mission","date")}${champ("dateValidation","Validé le","date")}
+          ${champ("responsable","Responsable")}
+        </div>
+        <label class="f" style="margin-top:10px"><span>Note (facultative)</span><textarea data-tm="commentaire" placeholder="ex. acompte reçu, délai à surveiller…">${esc(c.commentaire||"")}</textarea></label>
+      </div>
+      <div class="modal-actions"><button class="btn" data-no>Ne pas publier</button><button class="btn p" data-yes>Publier dans Teams</button></div></div>`;
+    const fin=v=>{ m.remove(); resolve(v); };
+    m.querySelector(".modal-x").onclick=()=>fin(null); m.querySelector("[data-no]").onclick=()=>fin(null);
+    m.querySelector("[data-yes]").onclick=()=>{ m.querySelectorAll("[data-tm]").forEach(el=>{ c[el.dataset.tm]=el.type==="number"?(+el.value||0):el.value; }); fin(c); };
+    document.body.appendChild(m); setTimeout(()=>m.querySelector("[data-yes]")?.focus(),30);
+  });
+}
+
+async function teamsEnvoyer(d, charge, correction){
   try{
-    const r=await proxyFetch(base+"/api/teams/devis-valide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(teamsCharge(d))});
+    const r=await proxyFetch(teamsBase()+"/api/teams/devis-valide",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...charge,correction:!!correction})});
     const j=await r.json().catch(()=>({}));
-    if(r.status===503&&j.nonConfigure) return;                      /* Teams pas encore branché : silence */
     if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
-    d.teamsNotifie={at:nowISO(),par:SB_USER?.email||""};
-    const avant=st.id; st.id=d.id; try{ await saveDev(); }finally{ st.id=avant; }
-    toast(`Devis ${d.ref||""} publié dans Teams.`);
+    d.teamsNotifie={at:nowISO(),par:SB_USER?.email||"",charge}; delete d.teamsEnAttente;
+    await teamsEnregistrerDevis(d); render();
+    toast(correction?"Correction publiée dans Teams.":`Devis ${d.ref||""} publié dans Teams.`);
+    return true;
   }catch(e){
-    teamsBandeau(`Message Teams non envoyé (${d.client?.raison||"devis"}) : ${e?.message||e}`,"Réessayer",()=>teamsDevisValide(d,{force:true}));
+    teamsBandeau(`Message Teams non envoyé (${d.client?.raison||"devis"}) : ${e?.message||e}`,"Réessayer",()=>teamsEnvoyer(d,charge,correction));
+    return false;
   }
+}
+
+/* Appelé au passage à « validé ». */
+async function teamsDevisValide(d){
+  if(!d||d.teamsNotifie||!(SB&&SB_USER)) return;
+  if(!await teamsVerifier()) return;
+  const charge=await teamsFenetre(d,false);
+  if(!charge){
+    d.teamsEnAttente=true; await teamsEnregistrerDevis(d); render();
+    teamsBandeau("Devis non publié dans Teams. Le bouton « Publier dans Teams » reste disponible dans le dossier.","",null);
+    return;
+  }
+  await teamsEnvoyer(d,charge,false);
+}
+async function teamsPublierManuel(d, correction){
+  if(!await teamsVerifier()){ toast("Teams n'est pas encore configuré sur le serveur.",true); return; }
+  const charge=await teamsFenetre(d,correction); if(charge) await teamsEnvoyer(d,charge,correction);
+}
+
+/* Boutons du dossier (en-tête et menu « Autres actions »). */
+function teamsBoutonDossier(d){
+  if(!TEAMS.pret||!teamsValide(d)||d.teamsNotifie) return "";
+  return `<button class="btn" data-teams-publier title="Publier ce devis validé dans la conversation Teams du cabinet">Publier dans Teams</button>`;
+}
+function teamsMenuDossier(d){
+  if(!TEAMS.pret||!d.teamsNotifie) return "";
+  return `<button data-teams-correction title="Publié le ${esc(dateFR(String(d.teamsNotifie.at||"").slice(0,10)))}">Publier une correction dans Teams</button>`;
+}
+function teamsLier(){
+  if(st.view!=="devis1") return;
+  const d=curDev(); if(!d) return;
+  document.querySelectorAll("[data-teams-publier]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); teamsPublierManuel(d,false); });
+  document.querySelectorAll("[data-teams-correction]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); b.closest("details")?.removeAttribute("open"); teamsPublierManuel(d,true); });
 }

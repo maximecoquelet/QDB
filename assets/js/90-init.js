@@ -26,6 +26,8 @@ if("serviceWorker" in navigator && (location.protocol==="https:"||location.hostn
   if(typeof fjInitialiser==="function") await fjInitialiser();
   /* v57 : enregistrements aux impôts, accès propre (facturation juridique ou liste dédiée). */
   if(typeof enrInitialiser==="function") await enrInitialiser();
+  /* v58.1 : Teams branché côté serveur ? (non bloquant) */
+  if(typeof teamsVerifier==="function") teamsVerifier().then(p=>{ if(p&&st.view==="devis1") render(); });
   const [cab,mod,lm,dev,cli,reg,ys,audit,trash,errors]=await Promise.all([S.get(K.cab,true),S.get(K.mod,true),S.get(K.lm,true),S.get(K.dev,true),S.get(K.cli,true),S.get(K.reg,true),S.get(K.ys,true),S.get(K.audit,true),S.get(K.trash,true),S.get(K.errors,true)]);
   try{ if(cab) st.cab={...CAB_DEF,...JSON.parse(cab)}; }catch(e){}
   try{ if(mod) st.modeles=JSON.parse(mod)||[]; st.modeles.forEach(normalizeModelUx); }catch(e){}

@@ -582,6 +582,7 @@ function bind(){
   document.querySelectorAll("[data-reglages-rub]").forEach(b=>b.onclick=()=>{ st.reglagesRub=b.dataset.reglagesRub; render(); });
   if(typeof fjLier==="function") fjLier();
   if(typeof enrLier==="function") enrLier();
+  if(typeof teamsLier==="function") teamsLier();
   document.querySelectorAll("[data-ca-annee]").forEach(sel=>sel.onchange=()=>{ st.caAnnee=sel.value; render(); });
   document.querySelectorAll("[data-ca-liste]").forEach(el=>el.ontoggle=()=>{ st.caListeOuverte=el.open; });
   /* v53.6 : retraitement des frais et débours. Il porte sur le dossier
