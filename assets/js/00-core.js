@@ -10,7 +10,7 @@
    ====================================================================== */
 const SUPABASE_URL = "https://ueuhedaqpzxmjrcjktmw.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_QH-5FvLviSJJZD3Fne_CPQ_KeYWDrGm";
-const APP_VERSION = "57.2-interne";
+const APP_VERSION = "58.0-interne";
 const APP_BUILD_DATE = "2026-11-11";
 
 /* v54 — Lien d'invitation ou de réinitialisation reçu par e-mail.

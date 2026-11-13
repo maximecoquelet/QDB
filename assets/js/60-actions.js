@@ -604,6 +604,8 @@ const ACTS = {
   copySignMessage(){const d=curDev();navigator.clipboard?.writeText(signatureMessageFor(d,modOf(d))).then(()=>toast("Message Yousign copié.")).catch(()=>toast("Copie impossible.",true));},
   async manualSignStep(el){
     const d=curDev(); if(!d) return;
+    /* v58 : l'état « validé » avant l'action, pour ne publier dans Teams qu'au passage. */
+    const etaitValide=!!manualSignState(d.manualSign).quoteSigned||d.sign?.statut==="done";
     const avecLm=hasLettreMission(d), m=d.manualSign=manualSignState(d.manualSign);
     const step=el.dataset.step, checked=!!el.checked, dt=today();
     /* v49 : un dossier verrouillé ne se déverrouille pas en décochant une
@@ -668,6 +670,7 @@ const ACTS = {
       d.statut=d.sign.statut==="done"?"signe":d.sign.statut==="declined"?"refuse":d.sign.statut==="expired"?"expire":"envoye";
     } else d.statut=d.ref?"genere":"brouillon";
     logAudit(d,"Suivi de signature modifié",step+" : "+(checked?"oui":"non")); await saveDev(); render();
+    if(!etaitValide&&m.quoteSigned&&typeof teamsDevisValide==="function") teamsDevisValide(d);
     const labOk=labRempliPour(d), accReq=parcoursAcceptation(d);
     const msg=m.filed?"Parcours terminé : dossier classé."
       :(avecLm&&m.lmSigned)?"Lettre de mission signée : dossier à classer."
@@ -700,10 +703,12 @@ const ACTS = {
   async statut(){ const d=curDev();
     try{ const r=await proxyFetch(st.ys.proxy.replace(/\/$/,"")+"/api/signature-requests/"+encodeURIComponent(d.sign.id)+"?env="+encodeURIComponent(st.ys.env));
       const j=await r.json(); if(!r.ok) throw new Error(j.error||`HTTP ${r.status}`);
+      const etaitSigne=d.sign.statut==="done"||!!manualSignState(d.manualSign).quoteSigned;
       d.sign.statut=j.status;
       if(j.status==="done"){ d.statut="signe"; d.sign.signe=today(); if(!d.frozenAt) freezeDocuments(d); }
       else if(j.status==="declined") d.statut="refuse"; else if(j.status==="expired") d.statut="expire"; logAudit(d,"Statut Yousign actualisé",j.status);
-      saveDev(); render(); toast("Statut Yousign : "+j.status);
+      await saveDev(); render(); toast("Statut Yousign : "+j.status);
+      if(j.status==="done"&&!etaitSigne&&typeof teamsDevisValide==="function") teamsDevisValide(d);
     }catch(e){ toast("Statut indisponible : "+e.message,true); } },
   async downloadSigned(){ const d=curDev();
     if(!d.sign.id||d.sign.statut!=="done"){ toast("Les documents ne sont pas encore disponibles en version signée.",true); return; }
