@@ -1235,3 +1235,8 @@ body.theme-dark .fj-table .fj-actions{background:var(--surface)}
   .fj-etape-choix{width:22px;height:22px;line-height:22px}
   .fj-graph-axe{font-size:13px}
 }
+/* v56.1 — ligne cliquable : ouvre la modification */
+.fj-table tr.fj-cliquable{cursor:pointer}
+.fj-table tbody tr.fj-cliquable:hover td{background-image:linear-gradient(color-mix(in srgb,var(--encre) 4%,transparent),color-mix(in srgb,var(--encre) 4%,transparent))}
+.fj-table tbody tr.fj-cliquable:focus-visible{outline:2px solid var(--vert);outline-offset:-2px}
+.fj-table tr.fj-cliquable td.fj-actions{cursor:default}

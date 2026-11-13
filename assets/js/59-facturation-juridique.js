@@ -370,7 +370,7 @@ function fjVueAFacturer(){
       ${fjBarreRecherche(`<div class="hint" style="margin:0">Formalités terminées, pas encore passées en facturation — de la plus ancienne à la plus récente.</div>`)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
         <thead><tr>${fjTh("afacturer","dossier","Dossier")}${fjTh("afacturer","fin","Fin form.")}<th>Depuis</th>${fjTh("afacturer","type","Type")}${fjTh("afacturer","mission","Mission")}${fjTh("afacturer","honoraires","Honoraires HT","r")}${fjTh("afacturer","facturation","Factur.","","Mois de rattachement prévu")}<th class="fj-actions"></th></tr></thead>
-        <tbody>${lignes.map(l=>{const j=jours(l.date_fin_formalite);return `<tr>
+        <tbody>${lignes.map(l=>{const j=jours(l.date_fin_formalite);return `<tr class="fj-cliquable" data-fj-ligne="${esc(l.id)}" tabindex="0">
           <td>${fjNomClient(l)}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${fjDt(l.date_fin_formalite)}</td>
           <td>${j==null?`<span class="dim">—</span>`:`<span class="tag ${j>30?"rouge":j>15?"ocre":"gris"}">${j} j</span>`}</td>
@@ -474,7 +474,7 @@ function fjVueEncours(){
       ${fjBarreRecherche(filtres)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
         <thead><tr>${fjTh("encours","dossier","Dossier")}${fjTh("encours","type","Type")}${fjTh("encours","mission","Mission")}${fjTh("encours","honoraires","Honoraires HT","r")}${fjTh("encours","avancement","Avancement","","P : projet · S : signature · D : dépôt · F : fin de formalité")}${fjTh("encours","facturation","Factur.","","Mois de rattachement")}<th class="fj-actions"></th></tr></thead>
-        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l), n=E.findIndex(x=>x.id===e.id)+1;return `<tr class="fj-ligne" style="--fj-c:${fjCouleurSure(e.couleur)}">
+        <tbody>${lignes.map(l=>{const e=fjEtapeDe(l), n=E.findIndex(x=>x.id===e.id)+1;return `<tr class="fj-ligne fj-cliquable" data-fj-ligne="${esc(l.id)}" tabindex="0" style="--fj-c:${fjCouleurSure(e.couleur)}">
           <td><div class="fj-nom"><button type="button" class="fj-etape-choix" data-fj-etape-choix="${esc(l.id)}" title="${esc(e.libelle)}${l.avancement?" (choisie à la main)":""} — changer l'étape">${reperes?n:""}</button>${fjNomClient(l)}${l.devis_id&&st.devis.some(d=>d.id===l.devis_id)?` <button class="btn sm" data-fj-devis="${esc(l.devis_id)}" title="Ouvrir le dossier dans l'outil de devis">Devis</button>`:""}</div>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}${l.type_operation&&!fjTypes().includes(l.type_operation)?` <span class="tag rouge">hors liste</span>`:""}</td><td>${esc(l.mission||"")}</td>
           <td class="r num">${l.honoraires!=null?eur(l.honoraires):`<span class="dim">—</span>`}</td>
@@ -574,7 +574,7 @@ function fjVueFactures(){
       ${fjBarreRecherche(sel)}
       <div style="overflow-x:auto"><table class="synthese-table fj-table">
         <thead><tr>${fjTh("factures","facturation","Facturation")}${fjTh("factures","dossier","Dossier")}${fjTh("factures","type","Type")}${fjTh("factures","mission","Mission")}${fjTh("factures","honoraires","Honoraires HT","r fj-th-court")}${FJ_DEBOURS.map(([k,lib])=>fjTh("factures",k,esc(FJ_DEBOURS_COURTS[k]),"r fj-th-court",lib)).join("")}${fjTh("factures","debours","Total débours","r fj-th-court")}<th class="fj-actions"></th></tr></thead>
-        <tbody>${lignes.map(l=>`<tr>
+        <tbody>${lignes.map(l=>`<tr class="fj-cliquable" data-fj-ligne="${esc(l.id)}" tabindex="0">
           <td>${l.mois_facturation?esc(fjMois(l.mois_facturation)):`<span class="dim">—</span>`}</td>
           <td>${fjNomClient(l)}${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
           <td>${esc(l.type_operation||"")}</td><td>${esc(l.mission||"")}</td>
@@ -1043,6 +1043,19 @@ function fjLier(){
   });
   const un=(sel,f)=>document.querySelectorAll(sel).forEach(f);
   un("[data-fj-onglet]",b=>b.onclick=()=>{ FJ.onglet=b.dataset.fjOnglet; render(); });
+  /* v56.1 : un clic sur la ligne ouvre sa modification, comme « Modifier ».
+     Les éléments qui ont leur propre action (boutons, frise, étape, nom du
+     client, liens, champs) la gardent. Entrée fait de même au clavier. */
+  un("[data-fj-ligne]",tr=>{
+    const ouvrir=()=>{ const l=FJ.lignes.find(x=>x.id===tr.dataset.fjLigne); if(l) fjEditer(l,"Modifier la ligne"); };
+    tr.onclick=e=>{
+      if(e.target.closest("button,a,input,select,textarea,label,.fj-pop")) return;
+      if(String(window.getSelection?.()||"").trim()) return;   /* sélection de texte pour copier : pas d'ouverture */
+      ouvrir();
+    };
+    /* stopPropagation : sans cela, la même frappe Entrée validerait aussitôt la fenêtre ouverte. */
+    tr.onkeydown=e=>{ if(e.key==="Enter"&&e.target===tr){ e.preventDefault(); e.stopPropagation(); ouvrir(); } };
+  });
   un("[data-fj-trier]",th=>th.onclick=()=>{ const [o,k]=th.dataset.fjTrier.split(":"); const t=FJ.tris[o]; FJ.tris[o]=t&&t.k===k?{k,dir:t.dir==="asc"?"desc":"asc"}:{k,dir:"asc"}; render(); });
   un("[data-fj-jalon]",b=>b.onclick=e=>{ e.stopPropagation(); fjOuvrirJalon(b); });
   un("[data-fj-etape-choix]",b=>b.onclick=e=>{ e.stopPropagation(); fjOuvrirEtape(b); });
