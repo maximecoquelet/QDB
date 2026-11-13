@@ -29,6 +29,16 @@ create table if not exists public.enregistrements (
 comment on table public.enregistrements is
   'Actes présentés à l''enregistrement : droits, virement, envoi au SIE, retour. Accès limité aux comptes de facturation_juridique_acces.';
 
+-- v57.2 — mode d'envoi au SIE : papier ou courriel.
+alter table public.enregistrements add column if not exists mode_envoi text;
+do $m$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'enr_mode_envoi_valide') then
+    alter table public.enregistrements add constraint enr_mode_envoi_valide check (mode_envoi is null or mode_envoi in ('papier','courriel'));
+  end if;
+end
+$m$;
+
 create index if not exists enr_fj_idx on public.enregistrements (fj_id);
 
 -- Accès propre aux enregistrements : les comptes de la facturation

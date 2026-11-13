@@ -6,7 +6,13 @@
    Table `enregistrements`, même cloisonnement que la facturation
    juridique (script v57). Rien n'est écrit dans les journaux partagés.
    ===================================================================== */
-const ENR = { acces:false, lignes:[], table:false, onglet:"encours", etat:"", recherche:"" };
+const ENR = { acces:false, lignes:[], table:false, colonneMode:false, onglet:"encours", etat:"", recherche:"" };
+const ENR_MODES = { papier:"Papier", courriel:"Courriel" };
+const ENR_ICONES = {
+  papier:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 1.8h5.2L12 4.6v9.6H4z"/><path d="M9 1.8v3h3M6 8h4M6 10.5h4"/></svg>',
+  courriel:'<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="8" r="2.6"/><path d="M10.6 8v1.1a1.8 1.8 0 0 0 3.6 0V8A6.2 6.2 0 1 0 11.4 13.2"/></svg>'
+};
+const enrModeTag = m => m&&ENR_MODES[m]?`<span class="enr-mode enr-mode-${m}">${ENR_ICONES[m]} ${ENR_MODES[m]}</span>`:`<span class="dim">—</span>`;
 
 const ENR_ETATS_DEFAUT = [
   {id:"a_preparer",       libelle:"À préparer",         couleur:"#9AA3A0", date:""},
@@ -36,6 +42,7 @@ async function enrCharger(){
   const {data,error}=await SB.from("enregistrements").select("*").order("created_at",{ascending:true});
   if(error) return;
   ENR.table=true; ENR.lignes=data||[];
+  try{ const {error:e2}=await SB.from("enregistrements").select("mode_envoi").limit(1); ENR.colonneMode=!e2; }catch(_){ ENR.colonneMode=false; }
 }
 function enrVersBase(l){
   const num=v=>{ const n=fjMontant(v); return Number.isFinite(n)?n:null; };
@@ -44,6 +51,7 @@ function enrVersBase(l){
   return { dossier:String(l.dossier||"").trim(), motif:t(l.motif), montant:num(l.montant),
     date_demande_virement:d(l.date_demande_virement), date_virement:d(l.date_virement), date_envoi_sie:d(l.date_envoi_sie),
     sie:t(l.sie), date_retour:d(l.date_retour), commentaires:t(l.commentaires), client_id:t(l.client_id),
+    ...(ENR.colonneMode?{mode_envoi:ENR_MODES[l.mode_envoi]?l.mode_envoi:null}:{}),
     /* Le lien vers la facturation n'est modifiable que par qui la voit. */
     ...(FJ.acces?{fj_id:t(l.fj_id)}:{}) };
 }
@@ -83,7 +91,7 @@ VIEWS.enregistrements = () => {
   const q=normClient(ENR.recherche||"");
   let lignes=base.filter(l=>(!etat||enrEtatDe(l).id===etat)&&(!q||normClient(`${l.dossier} ${l.motif||""} ${l.sie||""} ${l.commentaires||""}`).includes(q)));
   const rang=l=>E.findIndex(e=>e.id===enrEtatDe(l).id);
-  fjTrier(lignes,"enr",{dossier:l=>normClient(l.dossier||""),motif:l=>normClient(l.motif||""),montant:l=>l.montant==null?null:+l.montant,sie:l=>normClient(l.sie||"")||null,
+  fjTrier(lignes,"enr",{dossier:l=>normClient(l.dossier||""),motif:l=>normClient(l.motif||""),montant:l=>l.montant==null?null:+l.montant,sie:l=>normClient(l.sie||"")||null,mode:l=>l.mode_envoi||null,
     suivi:l=>rang(l),attente:l=>l.date_envoi_sie&&!l.date_retour?enrJours(l.date_envoi_sie):null},
     (a,b)=>(rang(a)-rang(b))||String(a.date_envoi_sie||a.date_demande_virement||a.created_at||"").localeCompare(String(b.date_envoi_sie||b.date_demande_virement||b.created_at||"")));
   const aDemander=encours.filter(l=>!l.date_demande_virement&&!l.date_virement&&!l.date_envoi_sie);
@@ -112,7 +120,7 @@ VIEWS.enregistrements = () => {
         <input type="search" data-enr-recherche placeholder="Rechercher un dossier, un motif, un SIE…" value="${esc(ENR.recherche)}" style="width:280px;max-width:100%">
       </div>
       <div style="overflow-x:auto"><table class="synthese-table fj-table enr-table">
-        <thead><tr>${fjTh("enr","dossier","Dossier")}${fjTh("enr","motif","Motif")}${fjTh("enr","montant","Droits","r")}${fjTh("enr","suivi","Suivi","",`V : demande de virement · P : virement effectué · E : envoi au SIE · R : retour`)}${fjTh("enr","sie","SIE")}${fjTh("enr","attente","Attente","","Jours écoulés depuis l'envoi au SIE, tant que l'acte n'est pas revenu")}<th class="fj-actions"></th></tr></thead>
+        <thead><tr>${fjTh("enr","dossier","Dossier")}${fjTh("enr","motif","Motif")}${fjTh("enr","montant","Droits","r")}${fjTh("enr","suivi","Suivi","",`V : demande de virement · P : virement effectué · E : envoi au SIE · R : retour`)}${fjTh("enr","sie","SIE")}${fjTh("enr","mode","Envoi","","Papier ou courriel")}${fjTh("enr","attente","Attente","","Jours écoulés depuis l'envoi au SIE, tant que l'acte n'est pas revenu")}<th class="fj-actions"></th></tr></thead>
         <tbody>${lignes.map(l=>{ const e=enrEtatDe(l), j=l.date_envoi_sie&&!l.date_retour?enrJours(l.date_envoi_sie):null, c=fjClientDe(l), fj=l.fj_id?FJ.lignes.find(x=>x.id===l.fj_id):null;
           return `<tr class="fj-ligne fj-cliquable" data-enr-ligne="${esc(l.id)}" tabindex="0" style="--fj-c:${e.couleur}" title="${esc(e.libelle)}">
           <td><div class="fj-nom">${c?`<button type="button" class="fj-client fj-lien" data-fj-client="${esc(c.id)}" title="Ouvrir la fiche client">${esc(l.dossier)}</button>`:`<span class="fj-client">${esc(l.dossier)}</span>`}${fj?` <span class="tag gris" title="Lié à la ligne de facturation juridique « ${esc(fj.mission||fj.type_operation||"")} »">facturation</span>`:""}</div>${l.commentaires?`<div class="hint">${esc(l.commentaires)}</div>`:""}</td>
@@ -120,9 +128,10 @@ VIEWS.enregistrements = () => {
           <td class="r num">${l.montant!=null?eur(l.montant):`<span class="dim">—</span>`}</td>
           <td><span class="fj-frise">${ENR_JALONS().map(([k,lettre,lib])=>`<button type="button" class="fj-jalon${l[k]?" fait":""}" data-enr-jalon="${esc(l.id)}:${k}" title="${esc(lib)} : ${l[k]?dateFR(l[k]):"non renseignée"}">${lettre}</button>`).join("")}</span></td>
           <td>${esc(l.sie||"")}</td>
+          <td>${enrModeTag(l.mode_envoi)}</td>
           <td>${j==null?`<span class="dim">—</span>`:`<span class="tag ${j>(+o.delaiRetour||30)?"rouge":j>(+o.delaiRetour||30)/2?"ocre":"gris"}">${j} j</span>`}</td>
-          <td class="fj-actions"><div class="fj-boutons">${!l.date_retour&&l.date_envoi_sie?`<button class="btn sm p" data-enr-retour="${esc(l.id)}" title="Acte revenu enregistré aujourd'hui">Retour reçu</button>`:""}${!l.date_envoi_sie&&!l.date_retour?`<button class="btn sm" data-enr-envoi="${esc(l.id)}" title="Envoyé au SIE aujourd'hui">Envoyé</button>`:""}<button class="btn sm" data-enr-modifier="${esc(l.id)}">Modifier</button></div></td></tr>`; }).join("")||`<tr><td colspan="7"><div class="empty-state"><b>Aucun enregistrement</b></div></td></tr>`}</tbody>
-        <tfoot><tr class="total"><td colspan="2"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="3"></td><td class="fj-actions"></td></tr></tfoot>
+          <td class="fj-actions"><div class="fj-boutons">${!l.date_retour&&l.date_envoi_sie?`<button class="btn sm p" data-enr-retour="${esc(l.id)}" title="Acte revenu enregistré aujourd'hui">Retour reçu</button>`:""}${!l.date_envoi_sie&&!l.date_retour?`<button class="btn sm" data-enr-envoi="${esc(l.id)}" title="Envoyé au SIE aujourd'hui">Envoyé</button>`:""}<button class="btn sm" data-enr-modifier="${esc(l.id)}">Modifier</button></div></td></tr>`; }).join("")||`<tr><td colspan="8"><div class="empty-state"><b>Aucun enregistrement</b></div></td></tr>`}</tbody>
+        <tfoot><tr class="total"><td colspan="2"><b>Total (${lignes.length})</b></td><td class="r num"><b>${eur(total)}</b></td><td colspan="4"></td><td class="fj-actions"></td></tr></tfoot>
       </table></div>
       <div class="hint" style="margin-top:8px">Cliquez sur un point V · P · E · R pour saisir la date, sur la ligne pour la modifier, sur un en-tête pour trier. Attente : rouge au-delà de ${o.delaiRetour} jours sans retour.</div>
     </div></div>
@@ -147,6 +156,7 @@ function enrFormulaire(ligne,titre){
         ${champ("date_demande_virement",`Demande de virement${enrOptions().destVirement?" à "+esc(enrOptions().destVirement):""}`,"date")}
         ${champ("date_virement","Virement effectué","date")}
         ${champ("date_envoi_sie","Envoi au SIE","date")}
+        <label class="f"><span>Mode d'envoi</span><select data-enrf="mode_envoi"><option value="">— Non précisé —</option>${Object.entries(ENR_MODES).map(([k,v])=>`<option value="${k}" ${l.mode_envoi===k?"selected":""}>${v}</option>`).join("")}</select></label>
         ${champ("date_retour","Retour de l'acte enregistré","date")}
         ${FJ.acces?`<label class="f"><span>Ligne de facturation juridique liée</span><select data-enrf="fj_id"><option value="">— Aucune —</option>${fjs.map(x=>`<option value="${esc(x.id)}" ${l.fj_id===x.id?"selected":""}>${esc(x.dossier)}${x.mission?" · "+esc(x.mission):x.type_operation?" · "+esc(x.type_operation):""}${x.etat==="facture"?" (facturé)":""}</option>`).join("")}</select></label>`:""}
         <label class="f"><span>Fiche client</span><select data-enrf="client_id"><option value="">${(()=>{const c=fjClientDe({...l,client_id:""});return c?`Automatique : ${esc(c.raison||"")}`:"— Aucune —";})()}</option>${(st.clients||[]).filter(c=>!c.archive||c.id===l.client_id).slice().sort((a,b)=>String(a.raison||"").localeCompare(String(b.raison||""),"fr")).map(c=>`<option value="${esc(c.id)}" ${l.client_id===c.id?"selected":""}>${esc(c.raison||"Client")}</option>`).join("")}</select></label>
@@ -198,8 +208,8 @@ function enrParametres(){
 
 function enrExporter(){
   const q=v=>`"${String(v??"").replace(/"/g,'""')}"`, nb=v=>v==null?"":String(v).replace(".",",");
-  const L=[["Dossier","Motif d'enregistrement","Montant",`Demande virement${enrOptions().destVirement?" à "+enrOptions().destVirement:""}`,"Virement effectué","Envoi SIE","Lieu","Retour","État","Commentaires"].map(q).join(";")];
-  for(const l of ENR.lignes) L.push([q(l.dossier),q(l.motif),nb(l.montant),q(dateFR(l.date_demande_virement)),q(dateFR(l.date_virement)),q(dateFR(l.date_envoi_sie)),q(l.sie),q(dateFR(l.date_retour)),q(enrEtatDe(l).libelle),q(l.commentaires)].join(";"));
+  const L=[["Dossier","Motif d'enregistrement","Montant",`Demande virement${enrOptions().destVirement?" à "+enrOptions().destVirement:""}`,"Virement effectué","Envoi SIE","Mode d'envoi","Lieu","Retour","État","Commentaires"].map(q).join(";")];
+  for(const l of ENR.lignes) L.push([q(l.dossier),q(l.motif),nb(l.montant),q(dateFR(l.date_demande_virement)),q(dateFR(l.date_virement)),q(dateFR(l.date_envoi_sie)),q(ENR_MODES[l.mode_envoi]||""),q(l.sie),q(dateFR(l.date_retour)),q(enrEtatDe(l).libelle),q(l.commentaires)].join(";"));
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob(["﻿"+L.join("\r\n")],{type:"text/csv;charset=utf-8"}));
   a.download=`enregistrements-${today()}.csv`; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1200);
 }
@@ -220,13 +230,23 @@ function enrLier(){
   un("[data-enr-export]",b=>b.onclick=enrExporter);
   un("[data-enr-modifier]",b=>b.onclick=e=>{ e.stopPropagation(); const l=ENR.lignes.find(x=>x.id===b.dataset.enrModifier); if(l) enrEditer(l,"Modifier l'enregistrement"); });
   un("[data-enr-retour]",b=>b.onclick=async e=>{ e.stopPropagation(); const l=ENR.lignes.find(x=>x.id===b.dataset.enrRetour); if(l) await enrEnregistrerAnnulable(l,{...l,date_retour:today()},`Retour enregistré le ${dateFR(today())} — ${l.dossier}`); });
-  un("[data-enr-envoi]",b=>b.onclick=async e=>{ e.stopPropagation(); const l=ENR.lignes.find(x=>x.id===b.dataset.enrEnvoi); if(l) await enrEnregistrerAnnulable(l,{...l,date_envoi_sie:today()},`Envoyé au SIE le ${dateFR(today())} — ${l.dossier}`); });
+  /* « Envoyé » : date du jour + choix papier / courriel. */
+  un("[data-enr-envoi]",b=>b.onclick=e=>{ e.stopPropagation(); const l=ENR.lignes.find(x=>x.id===b.dataset.enrEnvoi); if(!l) return;
+    fjPopover(b,`<div class="fj-pop-titre">Envoi au SIE aujourd'hui — ${esc(l.dossier)}</div><div class="fj-pop-actions" style="justify-content:stretch">${Object.entries(ENR_MODES).map(([k,v])=>`<button type="button" class="btn sm${l.mode_envoi===k?" p":""}" data-pop-mode="${k}" style="flex:1">${ENR_ICONES[k]} ${v}</button>`).join("")}</div>`,
+    (p,fermer)=>p.querySelectorAll("[data-pop-mode]").forEach(x=>x.onclick=async()=>{ fermer(); const mode=x.dataset.popMode;
+      await enrEnregistrerAnnulable(l,{...l,date_envoi_sie:today(),mode_envoi:mode},`Envoyé au SIE par ${ENR_MODES[mode].toLowerCase()} le ${dateFR(today())} — ${l.dossier}`); })); });
   un("[data-enr-jalon]",b=>b.onclick=e=>{ e.stopPropagation();
     const [id,k]=b.dataset.enrJalon.split(":"); const l=ENR.lignes.find(x=>x.id===id); if(!l) return;
     const lib=(ENR_JALONS().find(x=>x[0]===k)||[])[2]||"Date";
+    const avecMode=k==="date_envoi_sie"&&ENR.colonneMode; let mode=l.mode_envoi||"";
     fjPopover(b,`<div class="fj-pop-titre">${esc(lib)} — ${esc(l.dossier)}</div><input type="date" data-pop-date value="${esc(l[k]||"")}">
+      ${avecMode?`<div class="fj-pop-actions" style="justify-content:stretch">${Object.entries(ENR_MODES).map(([m_,v])=>`<button type="button" class="btn sm${mode===m_?" p":""}" data-pop-mode="${m_}" style="flex:1">${ENR_ICONES[m_]} ${v}</button>`).join("")}</div>`:""}
       <div class="fj-pop-actions"><button type="button" class="btn sm" data-pop-auj>Aujourd'hui</button>${l[k]?`<button type="button" class="btn sm" data-pop-eff>Effacer</button>`:""}<button type="button" class="btn sm p" data-pop-ok>Enregistrer</button></div>`,
-    (p,fermer)=>{ const valider=async v=>{ fermer(); if((l[k]||"")===(v||"")) return; await enrEnregistrerAnnulable(l,{...l,[k]:v||""},`${lib} : ${v?dateFR(v):"effacée"} — ${l.dossier}`); };
+    (p,fermer)=>{
+      p.querySelectorAll("[data-pop-mode]").forEach(x=>x.onclick=()=>{ mode=x.dataset.popMode; p.querySelectorAll("[data-pop-mode]").forEach(y=>y.classList.toggle("p",y===x)); });
+      const valider=async v=>{ fermer(); const nv={...l,[k]:v||"",...(avecMode?{mode_envoi:v?mode:l.mode_envoi}:{})};
+        if((l[k]||"")===(v||"")&&(!avecMode||(l.mode_envoi||"")===(nv.mode_envoi||""))) return;
+        await enrEnregistrerAnnulable(l,nv,`${lib} : ${v?dateFR(v):"effacée"}${avecMode&&v&&mode?` (${ENR_MODES[mode].toLowerCase()})`:""} — ${l.dossier}`); };
       const inp=p.querySelector("[data-pop-date]"); inp.onkeydown=ev=>{ if(ev.key==="Enter"){ ev.preventDefault(); valider(inp.value); } };
       p.querySelector("[data-pop-ok]").onclick=()=>valider(inp.value); p.querySelector("[data-pop-auj]").onclick=()=>valider(today());
       const eff=p.querySelector("[data-pop-eff]"); if(eff) eff.onclick=()=>valider(""); });

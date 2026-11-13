@@ -1246,3 +1246,7 @@ body.theme-dark .fj-table .fj-actions{background:var(--surface)}
 .nav button.nav-sub::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.55;margin-right:2px;flex:0 0 5px}
 .nav button.nav-sub.on{color:#fff}
 .enr-table td:nth-child(2){min-width:120px}
+/* v57.2 — mode d'envoi au SIE */
+.enr-mode{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--reglure);color:var(--encre)}
+.enr-mode-courriel{background:color-mix(in srgb,#3B82C4 10%,transparent);border-color:color-mix(in srgb,#3B82C4 40%,transparent)}
+.enr-mode-papier{background:color-mix(in srgb,#8A6D3B 10%,transparent);border-color:color-mix(in srgb,#8A6D3B 40%,transparent)}
