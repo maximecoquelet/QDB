@@ -765,7 +765,30 @@ function fjRecapDebours(){
   const o=FJ.reglages.options?.recapDebours||{};
   return Object.fromEntries(FJ_DEBOURS.map(([k])=>[k,{...FJ_RECAP_DEBOURS_DEFAUT[k],...(o[k]||{})}]));
 }
-const fjObjetDefaut = l => String(l.mission||l.type_operation||"").trim();
+/* v58.11 : objet proposé = texte du champ « Objet » du devis lié (modèle
+   juridique exceptionnel), sinon mission, sinon type d'opération. Le
+   texte est mis à plat (sans mise en forme) et limité à 250 caractères. */
+const FJ_OBJET_MAX = 250;
+function fjObjetDevis(l){
+  try{
+    const d=l.devis_id&&(st.devis||[]).find(x=>x.id===l.devis_id); if(!d) return "";
+    const m=modOf(d); if(!m) return "";
+    for(const sec of (m.sections||[])) for(const it of (sec.items||[])){
+      if(it.type!=="paragraphe"||normClient(it.label||"")!=="objet") continue;
+      let html=""; try{ html=paragrapheHTML(d,m,sec,it)||""; }catch(_){ const src=paragraphSource(d,it); const u=typeof unpackRichText==="function"?unpackRichText(src):null; html=typeof sanitizeRichHTML==="function"?sanitizeRichHTML(u??src):""; }
+      const box=document.createElement("div"); box.innerHTML=html;
+      /* Texte libre non mis en forme qui contiendrait du balisage échappé : seconde lecture. */
+      if(/<\/?(p|li|ul|ol|b|strong|div|br)\b/i.test(box.textContent)) box.innerHTML=sanitizeRichHTML(box.textContent);
+      const B="p,li,div,h1,h2,h3,h4";
+      const blocs=[...box.querySelectorAll(B)].filter(e=>!e.querySelector(B)).map(e=>({li:e.tagName==="LI",t:String(e.textContent||"").replace(/\s+/g," ").trim()})).filter(x=>x.t);
+      let t=blocs.length?blocs.reduce((acc,x,i)=>acc+(i?(x.li&&blocs[i-1].li?", ":" "):"")+x.t,""):String(box.textContent||"").replace(/\s+/g," ").trim();
+      if(t.length>FJ_OBJET_MAX){ t=t.slice(0,FJ_OBJET_MAX); t=t.slice(0,Math.max(t.lastIndexOf(" "),FJ_OBJET_MAX-40)).replace(/[\s,;:.—-]+$/,"")+"…"; }
+      return t;
+    }
+  }catch(_){}
+  return "";
+}
+const fjObjetDefaut = l => fjObjetDevis(l)||String(l.mission||l.type_operation||"").trim();
 const fjObjet = l => String(l.objet_facture||"").trim()||fjObjetDefaut(l);
 const fjClientRecap = l => String(fjClientDe(l)?.raison||l.dossier||"").trim();
 /* Nom copié = raison sociale de la fiche client si elle est rattachée, sinon nom du suivi. */
@@ -783,75 +806,75 @@ function fjRecapDonnees(mois){
     .sort((a,b)=>fjClientRecap(a).localeCompare(fjClientRecap(b),"fr"));
   const R=fjRecapDebours(), honoraires=[], debours=[];
   for(const l of lignes){
-    honoraires.push({l,client:fjClientRecap(l),objet:fjObjet(l),qte:1,montant:+l.honoraires||0});
-    for(const [k] of FJ_DEBOURS){ const v=+l[k]||0; if(v) debours.push({l,client:fjClientRecap(l),tva:R[k].tva?"Soumis à TVA":"Non soumis",objet:R[k].objet,qte:1,montant:v}); }
+    honoraires.push({l,client:fjClientRecap(l),objet:fjObjet(l),montant:+l.honoraires||0});
+    for(const [k] of FJ_DEBOURS){ const v=+l[k]||0; if(v) debours.push({l,k,client:fjClientRecap(l),tva:R[k].tva?"Soumis à TVA":"Non soumis",objet:R[k].objet,montant:v}); }
   }
   return {lignes,honoraires,debours};
 }
+/* Lignes déjà reportées dans Dia Client : case à cocher, mémorisée sur cet appareil. */
+const FJ_RECAP_SAISIES = "serre:fj:recap-saisies";
+function fjRecapSaisies(){ try{ return new Set(JSON.parse(localStorage.getItem(FJ_RECAP_SAISIES)||"[]")); }catch(_){ return new Set(); } }
+function fjRecapBasculer(cle, oui){ try{ const x=fjRecapSaisies(); oui?x.add(cle):x.delete(cle); localStorage.setItem(FJ_RECAP_SAISIES,JSON.stringify([...x].slice(-2000))); }catch(_){} }
+/* Cellule « cliquer pour copier » : un champ de Dia Client à la fois. */
+const fjCopie = (val, aff=val) => `<button type="button" class="fj-copie" data-fj-copie="${esc(val)}" title="Cliquer pour copier">${esc(aff)}</button>`;
 function fjVueRecap(){
   const mois=fjMoisRecapCourant(), dispo=fjMoisRecapDispo(), liste=dispo.includes(mois)?dispo:[mois,...dispo];
-  const {honoraires,debours}=fjRecapDonnees(mois);
+  const {honoraires,debours}=fjRecapDonnees(mois), faits=fjRecapSaisies();
   const sel=`<label class="row" style="gap:8px">Mois de facturation <select data-fj-recap-mois style="width:auto">${liste.map(x=>`<option value="${x}" ${x===mois?"selected":""}>${esc(fjMoisLong(x+"-01"))}</option>`).join("")}</select></label>`;
   const tot=a=>a.reduce((t,x)=>t+x.montant,0);
   const vide=(n,txt)=>`<tr><td colspan="${n}"><div class="empty-state"><b>${txt}</b></div></td></tr>`;
+  const coche=(cle,lib)=>`<td class="fj-recap-fait"><input type="checkbox" data-fj-recap-fait="${esc(cle)}" ${faits.has(cle)?"checked":""} title="Reporté dans Dia Client" aria-label="${esc(lib)} reporté dans Dia Client"></td>`;
+  const nbFait=a=>a.filter(x=>faits.has(x.cle)).length;
+  honoraires.forEach(x=>x.cle="h:"+x.l.id); debours.forEach(x=>x.cle="d:"+x.l.id+":"+x.k);
   const sansObjet=honoraires.filter(x=>!x.objet).length;
   return `<div class="card"><div class="bd">
     <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">${sel}
       <button class="btn" data-fj-recap-xlsx ${honoraires.length?"":"disabled"}>Exporter en Excel</button></div>
-    <div class="hint" style="margin-bottom:12px">Formalités passées en facturation sur ce mois. « Copier » place les lignes, sans en-tête, dans le presse-papiers : collez-les dans votre tableur (Ctrl V). L'objet est modifiable ici ; il est enregistré sur la ligne.${FJ.colonneObjet?"":" <b>Objet non enregistrable : relancer le script v55 dans Supabase.</b>"}</div>
-    <div class="row" style="justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="margin:6px 0">Facturation <span class="dim">(${honoraires.length})</span></h3>
-      <button class="btn sm" data-fj-recap-copier="honoraires" ${honoraires.length?"":"disabled"}>Copier les ${honoraires.length} ligne(s)</button></div>
-    ${sansObjet?`<div class="notice" style="margin:6px 0">${sansObjet} ligne(s) sans objet : complétez-les avant de copier.</div>`:""}
+    <div class="hint" style="margin-bottom:12px">Formalités passées en facturation sur ce mois. Cliquez sur un client, un objet ou un montant pour le copier, puis collez-le dans Dia Client (Ctrl V). Cochez la ligne une fois reportée. L'objet est repris du devis ; il reste modifiable ici.${FJ.colonneObjet?"":" <b>Objet non enregistrable : relancer le script v55 dans Supabase.</b>"}</div>
+    <h3 style="margin:6px 0">Facturation <span class="dim">(${nbFait(honoraires)}/${honoraires.length} reportée(s))</span></h3>
+    ${sansObjet?`<div class="notice" style="margin:6px 0">${sansObjet} ligne(s) sans objet : complétez-les.</div>`:""}
     <div style="overflow-x:auto"><table class="synthese-table fj-table fj-recap">
-      <thead><tr><th>Client</th><th>Objet</th><th class="r">Quantité</th><th class="r" title="Pour contrôle ; non copié">Honoraires HT</th></tr></thead>
-      <tbody>${honoraires.map(x=>`<tr><td>${fjNomRecap(x)}${x.client!==x.l.dossier?`<div class="hint">Suivi : ${esc(x.l.dossier)}</div>`:""}</td>
-        <td><input type="text" data-fj-recap-objet="${esc(x.l.id)}" value="${esc(x.l.objet_facture||"")}" placeholder="${esc(fjObjetDefaut(x.l)||"Objet de la facture")}" ${FJ.colonneObjet?"":"disabled"} style="width:100%;min-width:220px"></td>
-        <td class="r num">1</td><td class="r num">${eur(x.montant)}</td></tr>`).join("")||vide(4,"Aucune formalité facturée sur ce mois")}</tbody>
-      ${honoraires.length?`<tfoot><tr class="total"><td colspan="3"><b>Total</b></td><td class="r num"><b>${eur(tot(honoraires))}</b></td></tr></tfoot>`:""}
+      <thead><tr><th>Client</th><th>Objet</th><th class="r" title="Pour contrôle">Honoraires HT</th><th class="fj-recap-fait" title="Reporté dans Dia Client">Reporté</th></tr></thead>
+      <tbody>${honoraires.map(x=>`<tr class="${faits.has(x.cle)?"fj-recap-ok":""}"><td>${fjCopie(x.client)}${x.client!==x.l.dossier?`<div class="hint">Suivi : ${esc(x.l.dossier)}</div>`:""}</td>
+        <td class="fj-recap-objet-td"><div class="fj-recap-objet"><textarea rows="1" data-fj-recap-objet="${esc(x.l.id)}" data-fj-objet-defaut="${esc(fjObjetDefaut(x.l))}" placeholder="Objet de la facture" ${FJ.colonneObjet?"":"disabled"}>${esc(x.objet)}</textarea><button type="button" class="btn sm" data-fj-copie-objet="${esc(x.l.id)}" title="Copier l'objet">Copier</button></div></td>
+        <td class="r num">${fjCopie(fjNbFr(x.montant),eur(x.montant))}</td>${coche(x.cle,x.client)}</tr>`).join("")||vide(4,"Aucune formalité facturée sur ce mois")}</tbody>
+      ${honoraires.length?`<tfoot><tr class="total"><td colspan="2"><b>Total</b></td><td class="r num"><b>${eur(tot(honoraires))}</b></td><td></td></tr></tfoot>`:""}
     </table></div>
-    <div class="row" style="justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:18px"><h3 style="margin:6px 0">Débours <span class="dim">(${debours.length})</span></h3>
-      <button class="btn sm" data-fj-recap-copier="debours" ${debours.length?"":"disabled"}>Copier les ${debours.length} ligne(s)</button></div>
+    <h3 style="margin:18px 0 6px">Débours <span class="dim">(${nbFait(debours)}/${debours.length} reporté(s))</span></h3>
     <div style="overflow-x:auto"><table class="synthese-table fj-table fj-recap">
-      <thead><tr><th>Client</th><th>TVA</th><th>Objet</th><th class="r">Quantité</th><th class="r">Montant</th></tr></thead>
-      <tbody>${debours.map(x=>`<tr><td>${fjNomRecap(x)}</td><td>${esc(x.tva)}</td><td>${esc(x.objet)}</td><td class="r num">1</td><td class="r num">${eur(x.montant)}</td></tr>`).join("")||vide(5,"Aucun débours sur ce mois")}</tbody>
-      ${debours.length?`<tfoot><tr class="total"><td colspan="4"><b>Total</b></td><td class="r num"><b>${eur(tot(debours))}</b></td></tr></tfoot>`:""}
+      <thead><tr><th>Client</th><th>TVA</th><th>Objet</th><th class="r">Montant</th><th class="fj-recap-fait" title="Reporté dans Dia Client">Reporté</th></tr></thead>
+      <tbody>${debours.map(x=>`<tr class="${faits.has(x.cle)?"fj-recap-ok":""}"><td>${fjCopie(x.client)}</td><td>${esc(x.tva)}</td><td>${fjCopie(x.objet)}</td><td class="r num">${fjCopie(fjNbFr(x.montant),eur(x.montant))}</td>${coche(x.cle,x.client+" "+x.objet)}</tr>`).join("")||vide(5,"Aucun débours sur ce mois")}</tbody>
+      ${debours.length?`<tfoot><tr class="total"><td colspan="3"><b>Total</b></td><td class="r num"><b>${eur(tot(debours))}</b></td><td></td></tr></tfoot>`:""}
     </table></div>
-    <div class="hint" style="margin-top:8px">Objets et régime de TVA des débours : bouton « Paramètres ».</div>
+    <div class="hint" style="margin-top:8px">Objets et régime de TVA des débours : bouton « Paramètres ». Les coches sont mémorisées sur cet appareil.</div>
   </div></div>`;
 }
-/* Montants au format français (virgule) pour un collage dans Excel. */
+/* Montants au format français (virgule) pour un collage dans Dia Client ou Excel. */
 const fjNbFr = v => (Math.round((+v||0)*100)/100).toFixed(2).replace(".",",");
-const fjTsv = v => String(v??"").replace(/[\t\r\n]+/g," ").trim();
+async function fjCopierTexte(v, quoi){
+  try{ await navigator.clipboard.writeText(String(v??"")); toast(`${quoi||"Copié"} : ${String(v).length>60?String(v).slice(0,60)+"…":v}`); return true; }
+  catch(_){ toast("Copie refusée par le navigateur.",true); return false; }
+}
 function fjRecapLignes(quoi, mois){
   const {honoraires,debours}=fjRecapDonnees(mois);
-  return quoi==="debours"
-    ? debours.map(x=>[x.client,x.tva,x.objet,1,x.montant])
-    : honoraires.map(x=>[x.client,x.objet,1]);
+  return quoi==="debours" ? debours.map(x=>[x.client,x.tva,x.objet,x.montant]) : honoraires.map(x=>[x.client,x.objet,x.montant]);
 }
 /* Objets saisis mais pas encore enregistrés (clic direct sur Copier) : on les enregistre d'abord. */
 async function fjRecapEnregistrerSaisies(){
   for(const i of document.querySelectorAll("[data-fj-recap-objet]")){
     const l=FJ.lignes.find(x=>x.id===i.dataset.fjRecapObjet), v=i.value.trim();
-    if(l&&v!==(l.objet_facture||"")) await fjEnregistrer({...l,objet_facture:v});
+    if(l&&v!==fjObjet(l)) await fjEnregistrer({...l,objet_facture:v===fjObjetDefaut(l)?"":v});
   }
-}
-async function fjRecapCopier(quoi){
-  await fjRecapEnregistrerSaisies();
-  const mois=fjMoisRecapCourant(), L=fjRecapLignes(quoi,mois);
-  if(!L.length) return;
-  const txt=L.map(r=>r.map((v,i)=>typeof v==="number"&&!(quoi==="honoraires"||i===3)?fjNbFr(v):fjTsv(v)).join("\t")).join("\r\n");
-  try{ await navigator.clipboard.writeText(txt); toast(`${L.length} ligne(s) ${quoi==="debours"?"de débours":"de facturation"} copiée(s) — collez-les dans votre tableur.`); }
-  catch(_){ toast("Copie refusée par le navigateur : utilisez « Exporter en Excel ».",true); }
 }
 async function fjRecapExcel(){
   if(typeof XLSX==="undefined"){ toast("Export Excel indisponible.",true); return; }
   await fjRecapEnregistrerSaisies();
   const mois=fjMoisRecapCourant(), wb=XLSX.utils.book_new();
-  const f1=XLSX.utils.aoa_to_sheet([["Client","Objet","Quantité"],...fjRecapLignes("honoraires",mois)]);
-  f1["!cols"]=[{wch:36},{wch:60},{wch:10}];
-  const f2=XLSX.utils.aoa_to_sheet([["Client","Soumis à TVA ou non","Objet","Quantité","Montant"],...fjRecapLignes("debours",mois)]);
-  f2["!cols"]=[{wch:36},{wch:20},{wch:30},{wch:10},{wch:12}];
-  for(const c of Object.keys(f2)) if(/^E\d+$/.test(c)&&c!=="E1") f2[c].z="#,##0.00";
+  const f1=XLSX.utils.aoa_to_sheet([["Client","Objet","Honoraires HT"],...fjRecapLignes("honoraires",mois)]);
+  f1["!cols"]=[{wch:36},{wch:70},{wch:14}];
+  const f2=XLSX.utils.aoa_to_sheet([["Client","Soumis à TVA ou non","Objet","Montant"],...fjRecapLignes("debours",mois)]);
+  f2["!cols"]=[{wch:36},{wch:20},{wch:30},{wch:12}];
+  for(const [f,col] of [[f1,"C"],[f2,"D"]]) for(const c of Object.keys(f)) if(new RegExp("^"+col+"\\d+$").test(c)&&c!==col+"1") f[c].z="#,##0.00";
   XLSX.utils.book_append_sheet(wb,f1,"Facturation");
   XLSX.utils.book_append_sheet(wb,f2,"Débours");
   XLSX.writeFile(wb,`recap-facturation-juridique-${mois}.xlsx`);
@@ -1281,12 +1304,16 @@ function fjLier(){
   un("[data-fj-devis]",b=>b.onclick=()=>{ st.id=b.dataset.fjDevis; st.view="devis1"; st.tab=rememberedTab(st.id); render(); });
   un("[data-fj-export]",b=>b.onclick=fjExporter);
   un("[data-fj-recap-mois]",x=>x.onchange=()=>{ FJ.moisRecap=x.value; render(); });
-  un("[data-fj-recap-copier]",b=>b.onclick=()=>fjRecapCopier(b.dataset.fjRecapCopier));
+  un("[data-fj-copie]",b=>b.onclick=e=>{ e.stopPropagation(); fjCopierTexte(b.dataset.fjCopie,"Copié"); });
+  un("[data-fj-copie-objet]",b=>b.onclick=async()=>{ const i=document.querySelector(`[data-fj-recap-objet="${CSS.escape(b.dataset.fjCopieObjet)}"]`); if(!i) return; await fjRecapEnregistrerSaisies(); fjCopierTexte(i.value.trim(),"Objet copié"); });
+  un("[data-fj-recap-fait]",c=>c.onchange=()=>{ fjRecapBasculer(c.dataset.fjRecapFait,c.checked); render(); });
   un("[data-fj-recap-xlsx]",b=>b.onclick=fjRecapExcel);
-  un("[data-fj-recap-objet]",i=>{ i.onchange=async()=>{ const l=FJ.lignes.find(x=>x.id===i.dataset.fjRecapObjet); if(!l) return;
-    const v=i.value.trim(); if(v===(l.objet_facture||"")) return;
-    if(await fjEnregistrer({...l,objet_facture:v})){ toast("Objet enregistré."); } };
-    i.onkeydown=e=>{ if(e.key==="Enter"){ e.preventDefault(); i.blur(); } }; });
+  un("[data-fj-recap-objet]",i=>{
+    const ajuster=()=>{ i.style.height="auto"; i.style.height=(i.scrollHeight+2)+"px"; }; if(!(window.CSS&&CSS.supports("field-sizing","content"))){ requestAnimationFrame(ajuster); i.oninput=ajuster; }
+    i.onchange=async()=>{ const l=FJ.lignes.find(x=>x.id===i.dataset.fjRecapObjet); if(!l) return;
+      const v=i.value.trim(); if(v===fjObjet(l)) return;
+      if(await fjEnregistrer({...l,objet_facture:v===fjObjetDefaut(l)?"":v})) toast("Objet enregistré."); };
+    i.onkeydown=e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); i.blur(); } }; });
   un("[data-fj-listes]",b=>b.onclick=fjGererListes);
   un("[data-fj-exercice]",x=>x.onchange=()=>{ FJ.exercice=+x.value; render(); });
   const fichier=document.querySelector("[data-fj-fichier]");

@@ -1318,3 +1318,21 @@ body:has(.modal){overflow:hidden}
   .modal-confirm .box{max-height:calc(100dvh - 20px)}
   .modal-actions{flex-wrap:wrap}
 }
+
+/* v58.11 — Récap. du mois : cellules à copier, coches de report */
+.fj-copie{all:unset;cursor:copy;border-bottom:1px dashed var(--reglure,#ccc);padding:1px 0}
+.fj-copie:hover,.fj-copie:focus-visible{border-bottom-color:currentColor;background:color-mix(in srgb,currentColor 7%,transparent);outline:none}
+.fj-recap td.fj-recap-fait,.fj-recap th.fj-recap-fait{width:1%;white-space:nowrap;text-align:center;padding-left:6px;padding-right:6px}
+.fj-recap tr.fj-recap-ok td:not(.fj-recap-fait){opacity:.45}
+.fj-recap-objet{display:flex;gap:6px;align-items:flex-start}
+.fj-recap-objet textarea{field-sizing:content;flex:1;min-width:220px;min-height:0;resize:none;overflow:hidden;line-height:1.35;padding:6px 8px}
+@media (max-width:760px){
+  .fj-recap td.fj-recap-fait,.fj-recap th.fj-recap-fait{width:100% !important;white-space:normal;padding:6px 4px 2px}
+  .fj-recap td.fj-recap-fait input{width:22px;height:22px}
+  .fj-table.fj-recap td.fj-recap-objet-td{display:block !important;text-align:left}
+  .fj-table.fj-recap td.fj-recap-objet-td::before{display:block;float:none;margin-bottom:4px}
+  .fj-recap-objet{flex-direction:column;align-items:stretch}
+  .fj-recap-objet textarea{min-width:0;width:100%}
+  .fj-recap-objet .btn{min-height:38px}
+  .fj-recap tfoot td:empty{display:none}
+}

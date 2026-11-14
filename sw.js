@@ -12,7 +12,7 @@
      copie. Les données (Supabase) et le service Render ne passent JAMAIS
      par ce cache : aucune donnée de dossier n'est stockée sur l'appareil.
    ===================================================================== */
-const CACHE = "serre-app-v58.10";
+const CACHE = "serre-app-v58.11";
 
 self.addEventListener("install", e => { self.skipWaiting(); });
 
