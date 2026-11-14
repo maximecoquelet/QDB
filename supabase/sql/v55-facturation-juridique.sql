@@ -103,6 +103,11 @@ alter table public.facturation_juridique
 alter table public.facturation_juridique
   add column if not exists client_id text;
 
+-- v58.10 — Objet de facture : libellé des honoraires sur la facture du
+-- client (récapitulatif mensuel à saisir dans Dia Client).
+alter table public.facturation_juridique
+  add column if not exists objet_facture text;
+
 do $etat$
 begin
   if not exists (select 1 from pg_constraint where conname = 'fj_etat_valide') then
