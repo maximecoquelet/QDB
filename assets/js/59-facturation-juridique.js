@@ -781,7 +781,7 @@ function fjObjetDevis(l){
       if(/<\/?(p|li|ul|ol|b|strong|div|br)\b/i.test(box.textContent)) box.innerHTML=sanitizeRichHTML(box.textContent);
       const B="p,li,div,h1,h2,h3,h4";
       const blocs=[...box.querySelectorAll(B)].filter(e=>!e.querySelector(B)).map(e=>({li:e.tagName==="LI",t:String(e.textContent||"").replace(/\s+/g," ").trim()})).filter(x=>x.t);
-      let t=blocs.length?blocs.reduce((acc,x,i)=>acc+(i?(x.li&&blocs[i-1].li?", ":" "):"")+x.t,""):String(box.textContent||"").replace(/\s+/g," ").trim();
+      let t=blocs.length?blocs.reduce((acc,x,i)=>acc+(i?" ":"")+(x.li?"- ":"")+x.t,""):String(box.textContent||"").replace(/\s+/g," ").trim();
       if(t.length>FJ_OBJET_MAX){ t=t.slice(0,FJ_OBJET_MAX); t=t.slice(0,Math.max(t.lastIndexOf(" "),FJ_OBJET_MAX-40)).replace(/[\s,;:.—-]+$/,"")+"…"; }
       return t;
     }
