@@ -63,13 +63,25 @@ function pdbLireInpi(T){
   };
 }
 
-/* Facture du journal d'annonces légales : total HT (frais annexes compris). */
+/* Facture du journal d'annonces légales : total HT (frais annexes compris).
+   Deux présentations : annonce parue dans un autre titre (ligne « Parution … »)
+   ou dans le journal lui-même (« N° Journal : … »). La société est la première
+   ligne après l'en-tête « Références », hors ligne « Parution ». */
+function pdbSocieteJal(l){
+  let x=String(l||"").replace(/\s{2,}.*$/,"").trim();                 /* colonnes de droite (quantité, prix) */
+  const q=x.match(/^(.*?)["«“]\s*([^"»”]+?)\s*["»”]/);                 /* EURL "LOZ DEVELOPPEMENT" A ST PERAY */
+  if(q) return `${q[1].trim()} ${q[2].trim()}`.trim();
+  return x.replace(/\s+A\s+[A-Z][A-Z' -]+$/,"").trim();
+}
 function pdbLireJal(T,L){
-  if(!/N°\s*Facture/i.test(T)||!/Parution/i.test(T)||!/TOTAL\s*H\.?\s*T/i.test(T)) return null;
+  if(!/N°\s*Facture/i.test(T)||!/TOTAL\s*H\.?\s*T/i.test(T)) return null;
+  if(!/Parution|N°\s*Journal|annonce|l[ée]gales@/i.test(T)) return null;
   const num=((T.match(/N°\s*Facture\s*:\s*([\d ]+)/i)||[])[1]||"").replace(/\s/g,"");
   const ht=(T.match(new RegExp("TOTAL\\s*H\\.?\\s*T\\.?\\s+"+PDB_MONTANT,"i"))||[])[1];
-  const i=L.findIndex(l=>/^Parution/i.test(l)); let societe="", nature="";
-  if(i>=0){ const suite=L.slice(i+1).filter(Boolean); societe=suite[0]||""; nature=(suite[1]||"").replace(/\s+\d[\d\s,.]*$/,"").trim(); }
+  let i=L.findIndex(l=>/^R[ée]f[ée]rences\s*:/i.test(l)); if(i<0) i=L.findIndex(l=>/^Parution/i.test(l));
+  const suite=i>=0?L.slice(i+1).filter(l=>l&&!/^Parution/i.test(l)):[];
+  const societe=pdbSocieteJal(suite[0]||"");
+  const nature=String(suite[1]||"").replace(/\s{2,}.*$/,"").replace(/\s+\d[\d\s,.]*$/,"").trim();
   const dm=T.match(/Date\s*:\s*(\d{2}\.\d{2}\.\d{2,4})/i);
   return {
     type:"jal", libelle:"Facture JAL", cle:"jal:"+num, numero:num?`Facture ${num}`:"",
