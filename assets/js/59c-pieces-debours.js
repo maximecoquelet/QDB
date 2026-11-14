@@ -63,7 +63,7 @@ function pdbLireInpi(T){
   };
 }
 
-/* Facture du journal d'annonces légales : total HT (frais annexes compris).
+/* Facture JAL (L'Écho Drôme-Ardèche) : total HT (frais annexes compris).
    Deux présentations : annonce parue dans un autre titre (ligne « Parution … »)
    ou dans le journal lui-même (« N° Journal : … »). La société est la première
    ligne après l'en-tête « Références », hors ligne « Parution ». */
@@ -74,8 +74,10 @@ function pdbSocieteJal(l){
   return x.replace(/\s+A\s+[A-Z][A-Z' -]+$/,"").trim();
 }
 function pdbLireJal(T,L){
+  /* Émetteur unique : L'Écho Drôme-Ardèche (SAS Deval Presse Infos), quel que
+     soit le journal de parution ; présentation identique d'une facture à l'autre. */
+  if(!/echo-drome-ardeche|DEVAL\s+PRESSE/i.test(T)) return null;
   if(!/N°\s*Facture/i.test(T)||!/TOTAL\s*H\.?\s*T/i.test(T)) return null;
-  if(!/Parution|N°\s*Journal|annonce|l[ée]gales@/i.test(T)) return null;
   const num=((T.match(/N°\s*Facture\s*:\s*([\d ]+)/i)||[])[1]||"").replace(/\s/g,"");
   const ht=(T.match(new RegExp("TOTAL\\s*H\\.?\\s*T\\.?\\s+"+PDB_MONTANT,"i"))||[])[1];
   let i=L.findIndex(l=>/^R[ée]f[ée]rences\s*:/i.test(l)); if(i<0) i=L.findIndex(l=>/^Parution/i.test(l));
