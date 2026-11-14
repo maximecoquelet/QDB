@@ -768,9 +768,24 @@ function fjRecapDebours(){
 /* v58.11 : objet proposé = texte du champ « Objet » du devis lié (modèle
    juridique exceptionnel), sinon mission, sinon type d'opération. Le
    texte est mis à plat (sans mise en forme) et limité à 250 caractères. */
-const FJ_OBJET_MAX = 250;
+/* v58.14 : ce qui est repris et la longueur maximale se règlent dans Paramètres. */
+const FJ_OBJET_MODES = [["tout","Tout le texte"],["premiere","Première ligne seulement"],["puces","Lignes à puces seulement"],["aucun","Rien (objet = mission ou type d'opération)"]];
+const fjObjetReglage = () => { const o=FJ.reglages.options||{}; const n=Math.round(+o.objetMax);
+  return { mode:FJ_OBJET_MODES.some(([k])=>k===o.objetMode)?o.objetMode:"tout", max:Number.isFinite(n)&&n>=20?Math.min(n,1000):120 }; };
+/* Coupe aux lignes entières tant qu'elles tiennent ; une première ligne trop longue est coupée au mot. */
+function fjCouperObjet(lignes, max){
+  const out=[]; let n=0;
+  for(const l of lignes){
+    const add=(out.length?1:0)+l.length;
+    if(n+add<=max){ out.push(l); n+=add; continue; }
+    if(!out.length){ let t=l.slice(0,max-1); const sp=t.lastIndexOf(" "); if(sp>max*0.6) t=t.slice(0,sp); out.push(t.replace(/[\s,;:.—-]+$/,"")+"…"); }
+    break;
+  }
+  return out.join("\n");
+}
 function fjObjetDevis(l){
   try{
+    const R=fjObjetReglage(); if(R.mode==="aucun") return "";
     const d=l.devis_id&&(st.devis||[]).find(x=>x.id===l.devis_id); if(!d) return "";
     const m=modOf(d); if(!m) return "";
     for(const sec of (m.sections||[])) for(const it of (sec.items||[])){
@@ -781,8 +796,10 @@ function fjObjetDevis(l){
       if(/<\/?(p|li|ul|ol|b|strong|div|br)\b/i.test(box.textContent)) box.innerHTML=sanitizeRichHTML(box.textContent);
       const B="p,li,div,h1,h2,h3,h4";
       const blocs=[...box.querySelectorAll(B)].filter(e=>!e.querySelector(B)).map(e=>({li:e.tagName==="LI",t:String(e.textContent||"").replace(/\s+/g," ").trim()})).filter(x=>x.t);
-      let t=blocs.length?blocs.map(x=>(x.li?"- ":"")+x.t).join("\n"):String(box.textContent||"").replace(/\s+/g," ").trim();
-      if(t.length>FJ_OBJET_MAX){ t=t.slice(0,FJ_OBJET_MAX); t=t.slice(0,Math.max(t.lastIndexOf(" "),FJ_OBJET_MAX-40)).replace(/[\s,;:.—-]+$/,"")+"…"; }
+      let lignes=blocs.length?blocs.map(x=>({li:x.li,t:(x.li?"- ":"")+x.t})):[{li:false,t:String(box.textContent||"").replace(/\s+/g," ").trim()}].filter(x=>x.t);
+      if(R.mode==="premiere") lignes=lignes.slice(0,1);
+      else if(R.mode==="puces"&&lignes.some(x=>x.li)) lignes=lignes.filter(x=>x.li);
+      const t=fjCouperObjet(lignes.map(x=>x.t),R.max);
       return t;
     }
   }catch(_){}
@@ -903,6 +920,10 @@ function fjGererListes(){
       <div class="f"><span><b>Avancement — étapes et couleurs</b></span>
         <div class="hint">Dans l'ordre du parcours. Une étape liée à une date est atteinte dès que cette date est saisie ; l'avancement peut aussi être choisi à la main sur chaque ligne.</div>
         <div data-fj-etapes></div><button class="btn sm" data-fj-etape-ajout style="margin-top:4px">Ajouter une étape</button></div>
+      <div class="f" style="margin-top:16px"><span><b>Récap. du mois — objet de facture repris du devis</b></span>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><select data-fj-objet-mode style="width:auto">${FJ_OBJET_MODES.map(([k,lib])=>`<option value="${k}" ${fjObjetReglage().mode===k?"selected":""}>${esc(lib)}</option>`).join("")}</select>
+        <label class="row" style="gap:6px">Longueur maximale <input type="number" min="20" max="1000" step="10" data-fj-objet-max value="${fjObjetReglage().max}" style="width:90px"> caractères</label></div>
+        <div class="hint">Les lignes sont gardées entières tant qu'elles tiennent dans la longueur. Un objet modifié à la main n'est jamais raccourci.</div></div>
       <div class="f" style="margin-top:16px"><span><b>Récap. du mois — débours</b> : objet porté sur la facture et régime de TVA</span>
         ${FJ_DEBOURS.map(([k,lib])=>{ const r=fjRecapDebours()[k]; return `<div class="row" style="gap:8px;margin:5px 0;flex-wrap:nowrap"><span style="width:210px;flex:none">${esc(lib)}</span><input type="text" data-fj-rd-objet="${k}" value="${esc(r.objet)}" style="flex:1"><select data-fj-rd-tva="${k}" style="width:auto"><option value="1" ${r.tva?"selected":""}>Soumis à TVA</option><option value="0" ${r.tva?"":"selected"}>Non soumis</option></select></div>`; }).join("")}</div>
       <label class="f" style="margin-top:16px"><span><b>Types d'opération</b> — liste fermée, un par ligne</span><textarea data-fj-types style="min-height:200px">${esc(fjTypes().join("\n"))}</textarea>
@@ -933,7 +954,7 @@ function fjGererListes(){
     if(inconnus.length){ toast("Types inconnus dans les familles : "+inconnus.join(", "),true); return; }
     const mods=[...m.querySelectorAll("[data-fj-modele]")].filter(x=>x.checked).map(x=>x.dataset.fjModele);
     const recapDebours=Object.fromEntries(FJ_DEBOURS.map(([k])=>[k,{objet:String(m.querySelector(`[data-fj-rd-objet="${k}"]`).value||"").trim(),tva:m.querySelector(`[data-fj-rd-tva="${k}"]`).value==="1"}]));
-    const options={...(FJ.reglages.options||{}),reperes:!!m.querySelector("[data-fj-opt-reperes]").checked,recapDebours};
+    const options={...(FJ.reglages.options||{}),reperes:!!m.querySelector("[data-fj-opt-reperes]").checked,recapDebours,objetMode:m.querySelector("[data-fj-objet-mode]").value,objetMax:Math.max(20,Math.min(1000,Math.round(+m.querySelector("[data-fj-objet-max]").value)||120))};
     if(await fjEnregistrerReglage("options",options) && await fjEnregistrerReglage("etapes",etapes) && await fjEnregistrerReglage("types",types) && await fjEnregistrerReglage("familles",familles) && await fjEnregistrerReglage("modeles",mods)){ fermer(); toast("Paramètres enregistrés."); render(); }
   };
 }
