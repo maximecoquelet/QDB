@@ -583,6 +583,7 @@ function bind(){
   if(typeof fjEtiqueterTables==="function") fjEtiqueterTables();
   if(typeof fjLier==="function") fjLier();
   if(typeof enrLier==="function") enrLier();
+  if(typeof pdbLier==="function") pdbLier();
   if(typeof teamsLier==="function") teamsLier();
   document.querySelectorAll("[data-ca-annee]").forEach(sel=>sel.onchange=()=>{ st.caAnnee=sel.value; render(); });
   document.querySelectorAll("[data-ca-liste]").forEach(el=>el.ontoggle=()=>{ st.caListeOuverte=el.open; });

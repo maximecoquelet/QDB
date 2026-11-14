@@ -1336,3 +1336,12 @@ body:has(.modal){overflow:hidden}
   .fj-recap-objet .btn{min-height:38px}
   .fj-recap tfoot td:empty{display:none}
 }
+
+/* v58.15 — Pièces de débours */
+.fj-page.pdb-survol{outline:2px dashed var(--accent,#d9480f);outline-offset:6px;border-radius:12px}
+.pdb-piece{border:1px solid var(--reglure);border-radius:10px;padding:10px 12px;margin:0 0 10px}
+.pdb-piece.pdb-ko{opacity:.85}
+.pdb-tete{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pdb-montants{display:grid;gap:6px;margin-top:8px}
+.pdb-montant{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:8px;align-items:center}
+@media (max-width:760px){.pdb-montant{grid-template-columns:1fr 1fr}.pdb-montant span{grid-column:1/-1}}

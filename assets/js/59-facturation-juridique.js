@@ -28,7 +28,7 @@ const FJ = {
   colonneObjet: false,  /* v58.10 : objet de facture */
   moisRecap: "",        /* mois affiché dans « Récap. du mois » (aaaa-mm) */
   reglagesEnBase: false,
-  reglages: { types: null, modeles: null, familles: null, etapes: null, options: null },  /* null = valeurs par défaut */
+  reglages: { types: null, modeles: null, familles: null, etapes: null, options: null, pieces: null },  /* null = valeurs par défaut */
   exercice: null,      /* année de début de l'exercice affiché (juin → mai) */
   derniereSync: 0
 };
@@ -408,6 +408,8 @@ VIEWS.juridique = () => {
   return `<div class="top"><h1>Facturation juridique</h1><span class="sub">Accès réservé — invisible des autres comptes${manque?` · <b>relancer le script v55 dans Supabase (mise à jour)</b>`:""}</span><span class="spacer"></span>
     <button class="btn fj-bureau" data-fj-listes>Paramètres</button>
     <button class="btn fj-bureau" data-fj-import>Importer</button>
+    <button class="btn" data-pdb-deposer title="Reçus INPI et factures JAL : les débours sont lus et reportés (vous pouvez aussi glisser les PDF sur la page)">Déposer des pièces</button>
+    <input type="file" data-pdb-fichiers accept=".pdf,application/pdf" multiple hidden>
     <button class="btn fj-bureau" data-fj-export>Exporter en CSV</button>
     <button class="btn p" data-fj-nouveau>Nouvelle ligne</button>
     <input type="file" data-fj-fichier accept=".csv,.txt,.xlsx,.xls" hidden></div>
