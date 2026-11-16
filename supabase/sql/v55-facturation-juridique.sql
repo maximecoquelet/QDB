@@ -108,6 +108,12 @@ alter table public.facturation_juridique
 alter table public.facturation_juridique
   add column if not exists objet_facture text;
 
+-- v58.18 — Pointage de la facturation (contrôle de la saisie dans Dia Client).
+alter table public.facturation_juridique
+  add column if not exists pointe      boolean not null default false,
+  add column if not exists pointe_par  text,
+  add column if not exists pointe_le   timestamptz;
+
 do $etat$
 begin
   if not exists (select 1 from pg_constraint where conname = 'fj_etat_valide') then
