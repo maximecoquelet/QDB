@@ -1356,3 +1356,7 @@ body:has(.modal){overflow:hidden}
   .fj-table tr.fj-pointe>td{background:transparent}
   .fj-table td.fj-pointe-col input{width:22px;height:22px}
 }
+
+/* v58.19 — session en lecture seule : bandeau permanent, plus seulement un toast */
+.lecture-seule-banner{position:sticky;top:0;z-index:50;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#c92a2a;color:#fff;font-size:14px}
+.lecture-seule-banner .btn{background:#fff;color:#c92a2a;border-color:#fff}

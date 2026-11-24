@@ -10,7 +10,7 @@
    ====================================================================== */
 const SUPABASE_URL = "https://ueuhedaqpzxmjrcjktmw.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_QH-5FvLviSJJZD3Fne_CPQ_KeYWDrGm";
-const APP_VERSION = "58.18-interne";
+const APP_VERSION = "58.19-interne";
 const APP_BUILD_DATE = "2026-11-11";
 
 /* v54 — Lien d'invitation ou de réinitialisation reçu par e-mail.
@@ -149,6 +149,11 @@ function devisRow(d){
 const CLES_STRUCTURANTES = new Set(["cab:identite","cab:modeles","cab:lettres","cab:devis","cab:clients","cab:reglages"]);
 let MODE_LECTURE_SEULE = false;
 let MOTIF_LECTURE_SEULE = "";
+/* v58.19 : la lecture seule ne protège que le DÉMARRAGE (données incomplètes).
+   Un échec de la relecture périodique (poste sorti de veille, Wi-Fi coupé)
+   ne doit plus bloquer les enregistrements pour le reste de la session :
+   c'est ce qui a fait perdre des devis saisis dans un onglet resté ouvert. */
+let DEMARRAGE_TERMINE = false;
 const MSG_LECTURE_SEULE = "Session en lecture seule : les données n'ont pas pu être lues au démarrage. Rechargez la page avant de modifier quoi que ce soit.";
 
 /* =====================================================================
@@ -231,6 +236,7 @@ const S = {
         if(error) throw error;
         return data ? JSON.stringify(data.data) : null;
       }catch(e){
+        if(DEMARRAGE_TERMINE){ console.warn("Relecture en échec (sans conséquence) :",k,e?.message||e); return undefined; }
         console.error("Supabase lecture",e);
         this.lecturesEnEchec.add(k);
         if(CLES_STRUCTURANTES.has(k)){

@@ -367,5 +367,6 @@ if("serviceWorker" in navigator && (location.protocol==="https:"||location.hostn
   if(migClients && !MODE_LECTURE_SEULE) await saveClients();
   render();
   if(MODE_LECTURE_SEULE) toast("Certaines données n'ont pas pu être lues : la session est en lecture seule. Rechargez la page.",true);
+  DEMARRAGE_TERMINE=true;
   if(!st.cab.nom) toast("Commencez par renseigner l'identité du cabinet.");
 })();
